@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod config;
 mod demo;
+pub mod smoke;
 
 use std::path::PathBuf;
 use std::sync::Arc;

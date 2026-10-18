@@ -124,6 +124,7 @@ export const api = {
   }) => invoke<{ changeset: string; files: number }>("check_in", { args }),
   history: (limit?: number) => invoke<Manifest[]>("history", { limit }),
   revealRoot: () => invoke<void>("reveal_root"),
+  frontendReady: () => invoke<void>("frontend_ready"),
 };
 
 export function errorText(e: unknown): string {

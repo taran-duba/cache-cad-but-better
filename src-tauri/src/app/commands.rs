@@ -124,6 +124,12 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
     })
 }
 
+/// The UI calls this once it has rendered; the start-up smoke test waits for it.
+#[tauri::command]
+pub fn frontend_ready(app: AppHandle) {
+    super::smoke::mark_ui_ready(&app);
+}
+
 #[tauri::command]
 pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig> {
     Ok(state.config.read().await.clone())
@@ -249,7 +255,7 @@ fn collect_untracked(root: &Path, rel: &Path, map: &PathMap, out: &mut Vec<PathB
     Ok(())
 }
 
-fn sidecar_path(cfg: &AppConfig) -> Option<PathBuf> {
+pub(crate) fn sidecar_path(cfg: &AppConfig) -> Option<PathBuf> {
     cfg.sidecar_path.clone().or_else(|| {
         let exe = std::env::current_exe().ok()?;
         Some(bundled_sidecar(exe.parent()?))

@@ -49,6 +49,7 @@ struct SidecarResponse {
     #[serde(default)]
     refs: Vec<RefEntry>,
     error: Option<String>,
+    version: Option<String>,
 }
 
 impl SidecarRefs {
@@ -57,10 +58,15 @@ impl SidecarRefs {
     pub fn new(exe: PathBuf, license_key: String) -> Self {
         Self { exe, license_key, proc: Mutex::new(None), next_id: Default::default() }
     }
-}
 
-impl RefReader for SidecarRefs {
-    async fn refs(&self, path: &Path) -> Result<Vec<RefEntry>> {
+    /// Check the helper starts and answers; returns its version.
+    pub async fn ping(&self) -> Result<String> {
+        let resp = self.request(serde_json::json!({ "op": "ping" })).await?;
+        Ok(resp.version.unwrap_or_default())
+    }
+
+    /// Send one request (the `id` is added here) and read its one-line response.
+    async fn request(&self, mut req: serde_json::Value) -> Result<SidecarResponse> {
         let mut guard = self.proc.lock().await;
         if guard.is_none() {
             let mut child = Command::new(&self.exe)
@@ -77,7 +83,7 @@ impl RefReader for SidecarRefs {
         }
         let (_, stdin, stdout) = guard.as_mut().expect("just set");
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed).to_string();
-        let req = serde_json::json!({ "id": id, "op": "refs", "path": path });
+        req["id"] = id.into();
         let io = async {
             stdin.write_all(format!("{req}\n").as_bytes()).await?;
             stdin.flush().await?;
@@ -94,10 +100,17 @@ impl RefReader for SidecarRefs {
         };
         let resp: SidecarResponse = serde_json::from_str(&line)?;
         if resp.ok {
-            Ok(resp.refs)
+            Ok(resp)
         } else {
             Err(Error::Refs(resp.error.unwrap_or_else(|| "unknown error".into())))
         }
+    }
+}
+
+impl RefReader for SidecarRefs {
+    async fn refs(&self, path: &Path) -> Result<Vec<RefEntry>> {
+        let resp = self.request(serde_json::json!({ "op": "refs", "path": path })).await?;
+        Ok(resp.refs)
     }
 }
 
