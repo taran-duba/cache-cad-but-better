@@ -1,0 +1,20 @@
+// Sample fixture for CADSYNC_SWREFS_FAKE. Keys are the files you ask "refs" about;
+// values are their direct references, or an error object. See FakeReferenceReader.cs.
+{
+  "C:\\Vault\\Robot.SLDASM": [
+    { "path": "C:\\Vault\\Drivetrain\\Drivetrain.SLDASM", "exists": true },
+    { "path": "C:\\Vault\\Arm\\Arm.SLDASM", "exists": true },
+    { "path": "C:\\Users\\alex\\Desktop\\Bracket.SLDPRT", "exists": false },
+    { "path": "Spacer^Robot.sldprt", "exists": false, "isVirtual": true },
+    { "path": "C:\\Vault\\arm\\arm.sldasm", "exists": true }
+  ],
+  "C:\\Vault\\Arm\\Arm.SLDASM": [
+    { "path": "C:\\Vault\\Arm\\Shoulder.SLDPRT", "exists": true }
+  ],
+  "C:\\Vault\\Arm\\Shoulder.SLDPRT": [],
+  "C:\\Vault\\Arm\\Shoulder.SLDDRW": [
+    { "path": "C:\\Vault\\Arm\\Shoulder.SLDPRT", "exists": true }
+  ],
+  "C:\\Vault\\Corrupt.SLDASM": { "error": "OPEN_FAILED", "message": "could not open C:\\Vault\\Corrupt.SLDASM (swDmDocumentOpenErrorFail)" },
+  "C:\\Vault\\Locked.SLDPRT": { "error": "NO_LICENSE", "message": "the Document Manager rejected the license key" }
+}

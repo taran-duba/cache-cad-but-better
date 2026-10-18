@@ -1,0 +1,16 @@
+<Project>
+  <!--
+    Shared settings for the SwRefs sidecar and its tests.
+    The real build runs on Windows (net8.0-windows, COM interop with the Document Manager).
+    Elsewhere (CI, the macOS dev machine) it builds as plain net8.0 and only the fake reader works.
+  -->
+  <PropertyGroup>
+    <TargetFramework Condition="$([MSBuild]::IsOSPlatform('Windows'))">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- Lets a machine that only has a newer runtime (e.g. .NET 10) run the net8.0 build and tests. -->
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+</Project>
