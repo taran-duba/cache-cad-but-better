@@ -20,8 +20,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(app::AppState::new(app.handle()));
-            app::restore_session(app.handle().clone());
-            app::spawn_poller(app.handle().clone());
+            match app::smoke::requested() {
+                Some(out) => app::smoke::start(app.handle().clone(), out),
+                None => {
+                    app::restore_session(app.handle().clone());
+                    app::spawn_poller(app.handle().clone());
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -42,6 +47,7 @@ pub fn run() {
             app::commands::check_in,
             app::commands::history,
             app::commands::reveal_root,
+            app::commands::frontend_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

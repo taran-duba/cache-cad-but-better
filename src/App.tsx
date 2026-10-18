@@ -27,7 +27,8 @@ export default function App() {
   }, [toasts.error]);
 
   useEffect(() => {
-    refreshStatus();
+    // Tell Rust the UI rendered and IPC works (the CI smoke test waits for this).
+    refreshStatus().then(() => api.frontendReady().catch(() => {}));
     const unlisten = [
       listen("vault-changed", () => {
         refreshStatus();
