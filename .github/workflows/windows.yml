@@ -87,10 +87,14 @@ jobs:
           "CADSYNC_EXE=$($exe.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Start the installed app (smoke test)
+        env:
+          HAS_GOOGLE_SECRETS: ${{ secrets.CADSYNC_GOOGLE_CLIENT_ID != '' }}
         run: |
           $result = Join-Path $env:RUNNER_TEMP "smoke.json"
           $shot = Join-Path $env:RUNNER_TEMP "cadsync-windows.png"
           $env:CADSYNC_SMOKE = $result
+          # Fail if the installer was built without the Google client.
+          if ($env:HAS_GOOGLE_SECRETS -eq "true") { $env:CADSYNC_SMOKE_REQUIRE_SIGNIN = "1" }
           $env:CADSYNC_SMOKE_HOLD_SECS = "12"
           $p = Start-Process $env:CADSYNC_EXE -PassThru
           $null = $p.Handle  # keep a handle so ExitCode is available later
