@@ -1,9 +1,14 @@
 //! App state shared by the Tauri commands, plus the background sync loop.
+//!
+//! Sign-in is two steps: a Google account (`auth`), then a shared drive
+//! (`vault`). In between, the UI shows the list of shared drives to pick from.
 
 pub mod commands;
 pub mod config;
 mod demo;
+pub mod logging;
 pub mod smoke;
+pub mod team;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,7 +17,7 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 use tokio::sync::RwLock;
 
-use crate::drive::auth::Auth;
+use crate::drive::auth::{Auth, OAuthClient};
 use crate::drive::http::HttpDrive;
 use crate::drive::{Backend, DriveApi};
 use crate::error::{Error, Result};
@@ -22,14 +27,30 @@ use config::AppConfig;
 
 pub type AppVault = Vault<Backend>;
 
+const POLL: Duration = Duration::from_secs(15);
+
 pub struct AppState {
+    pub auth: RwLock<Option<Arc<Auth>>>,
+    pub account: RwLock<Option<String>>,
     pub vault: RwLock<Option<Arc<AppVault>>>,
+    pub drive_name: RwLock<Option<String>>,
+    pub team: team::TeamCache,
     pub config: RwLock<AppConfig>,
     pub config_path: PathBuf,
     pub data_dir: PathBuf,
     pub demo: std::sync::atomic::AtomicBool,
+    /// Set when Google rejected the saved sign-in; the welcome screen says so.
+    pub sign_in_expired: std::sync::atomic::AtomicBool,
     /// Serializes sync passes so the poller and a manual "Sync now" never overlap.
     pub sync_lock: tokio::sync::Mutex<()>,
+}
+
+/// Where the log file and crash reports go.
+pub fn log_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_log_dir()
+        .or_else(|_| app.path().app_data_dir().map(|d| d.join("logs")))
+        .unwrap_or_else(|_| PathBuf::from("cadsync-logs"))
 }
 
 fn machine_name() -> String {
@@ -47,13 +68,23 @@ impl AppState {
             .unwrap_or_else(|_| data_dir.clone())
             .join("config.json");
         Self {
+            auth: RwLock::new(None),
+            account: RwLock::new(None),
             vault: RwLock::new(None),
+            drive_name: RwLock::new(None),
+            team: Default::default(),
             config: RwLock::new(AppConfig::load(&config_path)),
             config_path,
             data_dir,
             demo: Default::default(),
+            sign_in_expired: Default::default(),
             sync_lock: Default::default(),
         }
+    }
+
+    /// The Google OAuth client: built into the app, or an override from config.
+    pub async fn oauth_client(&self) -> Option<OAuthClient> {
+        self.config.read().await.oauth.clone().or_else(OAuthClient::built_in)
     }
 
     pub async fn vault(&self) -> Result<Arc<AppVault>> {
@@ -64,28 +95,88 @@ impl AppState {
             .ok_or_else(|| Error::Auth("sign in and choose a shared drive first".into()))
     }
 
-    /// Open the vault against real Drive using a saved or fresh sign-in.
-    pub async fn open_http(&self, auth: Auth) -> Result<()> {
-        let cfg = self.config.read().await.clone();
-        let drive_id = cfg.drive_id.ok_or_else(|| Error::Config("shared drive id".into()))?;
-        let drive = Backend::Http(HttpDrive::new(Arc::new(auth)));
-        let me = drive.whoami().await?;
-        let root_name = drive.get_file(&drive_id).await.map(|f| f.name).unwrap_or_else(|_| "Team Drive".into());
-        let root = cfg.root.unwrap_or_else(|| config::default_root(&root_name));
-        let vault_data = self.data_dir.join(&drive_id);
+    pub async fn http(&self) -> Result<HttpDrive> {
+        let auth = self.auth.read().await.clone().ok_or_else(|| Error::Auth("sign in with Google first".into()))?;
+        Ok(HttpDrive::new(auth))
+    }
+
+    /// Remember the Google sign-in, and open the saved drive if there is one.
+    pub async fn set_auth(&self, auth: Arc<Auth>) -> Result<()> {
+        let email = HttpDrive::new(auth.clone()).whoami().await?;
+        self.sign_in_expired.store(false, std::sync::atomic::Ordering::Relaxed);
+        *self.auth.write().await = Some(auth);
+        *self.account.write().await = Some(email);
+        if let Some(drive_id) = self.config.read().await.drive_id.clone() {
+            if let Err(e) = self.open_drive(&drive_id).await {
+                // E.g. a different account without access: let them pick again.
+                tracing::warn!(%e, "saved shared drive could not be opened");
+            }
+        }
+        Ok(())
+    }
+
+    /// Open a shared drive as the vault, and remember it for next time.
+    pub async fn open_drive(&self, drive_id: &str) -> Result<()> {
+        let auth = self.auth.read().await.clone().ok_or_else(|| Error::Auth("sign in with Google first".into()))?;
+        let me = self.account.read().await.clone().unwrap_or_default();
+        let drive = Backend::Http(HttpDrive::new(auth));
+        let name = drive.get_file(drive_id).await?.name;
+
+        let mut cfg = self.config.read().await.clone();
+        let root = match (&cfg.drive_id, &cfg.root) {
+            (Some(saved), Some(root)) if saved == drive_id => root.clone(),
+            _ => config::default_root(&name),
+        };
+        let vault_data = self.data_dir.join(drive_id);
         std::fs::create_dir_all(&vault_data)?;
         std::fs::create_dir_all(&root)?;
         let vault = Vault {
             drive,
             index: Index::open(&vault_data.join("index.sqlite"))?,
-            drive_id,
-            root,
+            drive_id: drive_id.to_string(),
+            root: root.clone(),
             data_dir: vault_data,
             me,
             machine: machine_name(),
             lock_verify_delay: Duration::from_secs(2),
         };
+
+        cfg.drive_id = Some(drive_id.to_string());
+        cfg.root = Some(root);
+        cfg.save(&self.config_path)?;
+        *self.config.write().await = cfg;
         *self.vault.write().await = Some(Arc::new(vault));
+        *self.drive_name.write().await = Some(name);
+        self.team.clear().await;
+        self.demo.store(false, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Google rejected the saved sign-in (revoked, expired, password changed):
+    /// forget it and send the user back to the welcome screen. Local files and
+    /// any interrupted check-in journal are kept for when they sign in again.
+    pub async fn expire_sign_in(&self, app: &tauri::AppHandle) {
+        tracing::warn!("Google sign-in expired or was revoked");
+        let _ = self.sign_out().await;
+        self.sign_in_expired.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = app.emit("vault-changed", ());
+    }
+
+    /// Pass a result through, signing out first if it says the sign-in expired.
+    pub async fn check_expired<T>(&self, app: &tauri::AppHandle, r: Result<T>) -> Result<T> {
+        if matches!(r, Err(Error::SignInExpired)) {
+            self.expire_sign_in(app).await;
+        }
+        r
+    }
+
+    pub async fn sign_out(&self) -> Result<()> {
+        Auth::sign_out()?;
+        *self.auth.write().await = None;
+        *self.account.write().await = None;
+        *self.vault.write().await = None;
+        *self.drive_name.write().await = None;
+        self.team.clear().await;
         self.demo.store(false, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
@@ -93,7 +184,10 @@ impl AppState {
     pub async fn open_demo(&self) -> Result<()> {
         let dir = self.data_dir.join("demo");
         let vault = demo::build(&dir).await?;
+        *self.account.write().await = Some(vault.me.clone());
         *self.vault.write().await = Some(Arc::new(vault));
+        *self.drive_name.write().await = Some("Demo Team Drive".into());
+        self.team.clear().await;
         self.demo.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
@@ -109,24 +203,24 @@ impl AppState {
     }
 }
 
-/// Background loop: sync every `poll_seconds`, tell the UI what happened.
+/// Background loop: sync every 15 s, tell the UI what happened.
 pub fn spawn_poller(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             let state = app.state::<AppState>();
-            let secs = state.config.read().await.poll_seconds.max(5);
             if state.vault.read().await.is_some() {
                 match state.sync_once().await {
                     Ok(report) => {
                         let _ = app.emit("sync-report", &report);
                     }
+                    Err(Error::SignInExpired) => state.expire_sign_in(&app).await,
                     Err(e) => {
                         tracing::warn!(%e, "background sync failed");
                         let _ = app.emit("sync-error", e.to_string());
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_secs(secs)).await;
+            tokio::time::sleep(POLL).await;
         }
     });
 }
@@ -139,13 +233,12 @@ pub fn restore_session(app: tauri::AppHandle) {
             if let Err(e) = state.open_demo().await {
                 tracing::error!(%e, "demo mode failed");
             }
-        } else {
-            let cfg = state.config.read().await.clone();
-            if let (Some(oauth), Some(_)) = (cfg.oauth, cfg.drive_id) {
-                if let Some(auth) = Auth::from_saved(oauth) {
-                    if let Err(e) = state.open_http(auth).await {
-                        tracing::warn!(%e, "saved session could not be restored");
-                    }
+        } else if let Some(client) = state.oauth_client().await {
+            if let Some(auth) = Auth::from_saved(client) {
+                match state.set_auth(Arc::new(auth)).await {
+                    Ok(()) => {}
+                    Err(Error::SignInExpired) => state.expire_sign_in(&app).await,
+                    Err(e) => tracing::warn!(%e, "saved sign-in could not be restored"),
                 }
             }
         }

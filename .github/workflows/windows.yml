@@ -60,6 +60,10 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build installer
+        env:
+          # Optional: with these repo secrets set, the installer has Google sign-in built in.
+          CADSYNC_GOOGLE_CLIENT_ID: ${{ secrets.CADSYNC_GOOGLE_CLIENT_ID }}
+          CADSYNC_GOOGLE_CLIENT_SECRET: ${{ secrets.CADSYNC_GOOGLE_CLIENT_SECRET }}
         run: |
           # SwRefs is already built above; skip rebuilding it (which would
           # require the SolidWorks interop DLL).
@@ -104,7 +108,10 @@ jobs:
             $p.Kill()
             throw "cadsync didn't exit within 3 minutes"
           }
-          if (Test-Path $result) { Get-Content $result } else { Write-Warning "no result file written" }
+          # A second copy exits at once (single-instance lock) with code 0, so
+          # the result file, not the exit code alone, proves this run tested.
+          if (-not (Test-Path $result)) { throw "no smoke result written (did another cadsync instance swallow the launch?)" }
+          Get-Content $result
           if ($p.ExitCode -ne 0) { throw "smoke test failed (exit code $($p.ExitCode))" }
           Write-Host "cadsync started and passed the smoke test on Windows."
 

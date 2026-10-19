@@ -5,6 +5,7 @@ import { VaultView } from "./views/VaultView";
 import { ChangesView } from "./views/ChangesView";
 import { HistoryView } from "./views/HistoryView";
 import { SettingsView } from "./views/SettingsView";
+import { Onboarding } from "./views/Onboarding";
 import { Toasts, useToasts } from "./Toasts";
 import "./App.css";
 
@@ -29,6 +30,10 @@ export default function App() {
   useEffect(() => {
     // Tell Rust the UI rendered and IPC works (the CI smoke test waits for this).
     refreshStatus().then(() => api.frontendReady().catch(() => {}));
+    api
+      .takeNewCrashReport()
+      .then((p) => p && toasts.warn("cadsync crashed last time. A crash report was saved — Settings › Open logs folder."))
+      .catch(() => {});
     const unlisten = [
       listen("vault-changed", () => {
         refreshStatus();
@@ -40,15 +45,13 @@ export default function App() {
         setRevision((r) => r + 1);
         refreshStatus();
         e.payload.conflicts.forEach((c) => toasts.warn(`Kept your unsaved edits as ${c}`));
+        if (e.payload.restored > 0) toasts.info(restoredText(e.payload.restored));
       }),
       listen<string>("sync-error", (e) => setLastSync({ at: new Date(), error: e.payload })),
     ];
     return () => unlisten.forEach((p) => p.then((f) => f()));
   }, [refreshStatus, toasts.warn]);
 
-  useEffect(() => {
-    if (status && !status.signedIn) setTab("settings");
-  }, [status?.signedIn]);
 
   const syncNow = async () => {
     setSyncing(true);
@@ -57,6 +60,7 @@ export default function App() {
       setLastSync({ at: new Date(), report });
       report.errors.forEach((e) => toasts.error(e));
       report.conflicts.forEach((c) => toasts.warn(`Kept your unsaved edits as ${c}`));
+      if (report.restored > 0) toasts.info(restoredText(report.restored));
       setRevision((r) => r + 1);
       refreshStatus();
     } catch (e) {
@@ -74,6 +78,15 @@ export default function App() {
 
   const signedIn = !!status?.signedIn;
 
+  if (!status) return <div className="onboarding muted">Starting…</div>;
+  if (!signedIn)
+    return (
+      <>
+        <Onboarding status={status} onChanged={changed} toasts={toasts} />
+        <Toasts state={toasts} />
+      </>
+    );
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -86,8 +99,8 @@ export default function App() {
         </div>
         {signedIn && (
           <div className="topbar-info">
-            <span title={status?.root ?? ""}>{status?.root}</span>
-            <span className="muted">· {status?.me}</span>
+            <span title={status.root ?? ""}>{status.driveName}</span>
+            <span className="muted">· {status.me}</span>
           </div>
         )}
         <div className="topbar-actions">
@@ -118,15 +131,14 @@ export default function App() {
             key={id}
             className={`navitem ${tab === id ? "active" : ""}`}
             onClick={() => setTab(id)}
-            disabled={!signedIn && id !== "settings"}
           >
             {label}
           </button>
         ))}
         {signedIn && !status?.refsAvailable && (
           <p className="nav-note">
-            Reference checking is off. Add the Document Manager key in Settings so check-ins can include
-            dependencies and catch broken references.
+            Reference checking is off, so check-ins can't add an assembly's parts for you. Add the team's
+            SolidWorks key in Settings (on Windows).
           </p>
         )}
       </nav>
@@ -167,4 +179,8 @@ function SyncState({
       {waiting > 0 && ` · ${waiting} waiting for SolidWorks to close`}
     </span>
   );
+}
+
+function restoredText(n: number) {
+  return `Put back ${n} file(s) deleted on this computer. To delete a file for the whole team, use Delete in the Vault tab.`;
 }

@@ -8,7 +8,9 @@ use tauri_plugin_opener::OpenerExt;
 
 use super::config::AppConfig;
 use super::{AppState, AppVault};
+use super::team::TeamSettings;
 use crate::drive::auth::Auth;
+use crate::drive::http::SharedDrive;
 use crate::drive::{props, LockInfo, RemoteFile};
 use crate::error::{Error, Result};
 use crate::index::{Manifest, PathMap};
@@ -17,16 +19,24 @@ use crate::refs::{CheckInPlan, Problem, SidecarRefs, StaticRefs};
 use crate::sync::localfs;
 use crate::sync::pull::{is_selected, PullReport};
 use crate::sync::push::{PushOutcome, PushRequest};
+use crate::sync::remove::DeleteOutcome;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
-    configured: bool,
+    /// This build can sign in with Google (an OAuth client is built in or configured).
+    sign_in_available: bool,
+    /// Signed in to Google (may not have picked a drive yet).
+    account: Option<String>,
+    /// A shared drive is open.
     signed_in: bool,
+    /// Google rejected the saved sign-in; show "sign in again".
+    sign_in_expired: bool,
     demo: bool,
     me: Option<String>,
     root: Option<PathBuf>,
     drive_id: Option<String>,
+    drive_name: Option<String>,
     file_count: u64,
     pending_check_ins: usize,
     refs_available: bool,
@@ -52,9 +62,10 @@ pub struct Entry {
     status: &'static str,
 }
 
-fn entry(v: &AppVault, f: &RemoteFile, map: &PathMap, all: &[RemoteFile], sel: &std::collections::BTreeMap<String, bool>) -> Result<Entry> {
-    let by_id = all.iter().map(|f| (f.id.as_str(), f)).collect();
-    let selected = is_selected(&f.id, &by_id, sel);
+type ById<'a> = std::collections::HashMap<&'a str, &'a RemoteFile>;
+
+fn entry(v: &AppVault, f: &RemoteFile, map: &PathMap, by_id: &ById, sel: &std::collections::BTreeMap<String, bool>) -> Result<Entry> {
+    let selected = is_selected(&f.id, by_id, sel);
     let status = if f.is_folder() {
         "synced"
     } else if f.prop(props::PENDING_CHANGESET).is_some_and(|c| !v.index.has_changeset(c).unwrap_or(false)) {
@@ -104,14 +115,21 @@ fn safe_rel(p: &Path) -> Result<PathBuf> {
 pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
     let cfg = state.config.read().await.clone();
     let vault = state.vault.read().await.clone();
-    let refs_available = sidecar_path(&cfg).is_some_and(|p| p.exists()) && cfg.swdm_key.is_some();
+    let key = match &vault {
+        Some(v) => swdm_key(&state, v).await,
+        None => None,
+    };
+    let refs_available = sidecar_path(&cfg).is_some_and(|p| p.exists()) && key.is_some();
     Ok(Status {
-        configured: cfg.oauth.is_some() && cfg.drive_id.is_some(),
+        sign_in_available: state.oauth_client().await.is_some(),
+        account: state.account.read().await.clone(),
         signed_in: vault.is_some(),
+        sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
         demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),
         drive_id: vault.as_ref().map(|v| v.drive_id.clone()),
+        drive_name: state.drive_name.read().await.clone(),
         file_count: match &vault {
             Some(v) => v.index.file_count()?,
             None => 0,
@@ -122,6 +140,12 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         },
         refs_available,
     })
+}
+
+/// The Document Manager key: the team's (from the shared drive), else a local override.
+async fn swdm_key(state: &AppState, v: &AppVault) -> Option<String> {
+    let team = state.team.load(v).await.unwrap_or_default().swdm_key;
+    team.or(state.config.read().await.swdm_key.clone()).filter(|k| !k.trim().is_empty())
 }
 
 /// The UI calls this once it has rendered; the start-up smoke test waits for it.
@@ -143,25 +167,56 @@ pub async fn save_config(state: State<'_, AppState>, config: AppConfig) -> Resul
     Ok(())
 }
 
+/// Sign in with Google in the browser. If a shared drive was picked before,
+/// it opens straight away; otherwise the UI asks which drive to use.
 #[tauri::command]
 pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    let oauth = state.config.read().await.oauth.clone().ok_or_else(|| Error::Config("OAuth client".into()))?;
+    let client = state
+        .oauth_client()
+        .await
+        .ok_or_else(|| Error::Config("this build has no Google sign-in set up (see docs/SETUP.md)".into()))?;
     let opener = app.clone();
-    let auth = Auth::sign_in(oauth, move |url| {
+    let auth = Auth::sign_in(client, move |url| {
         if let Err(e) = opener.opener().open_url(url, None::<&str>) {
             tracing::error!(%e, "could not open browser");
         }
     })
     .await?;
-    state.open_http(auth).await?;
+    state.set_auth(std::sync::Arc::new(auth)).await?;
+    let _ = app.emit("vault-changed", ());
+    Ok(())
+}
+
+/// The shared drives the signed-in account can use.
+#[tauri::command]
+pub async fn list_shared_drives(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<SharedDrive>> {
+    let r = state.http().await?.list_shared_drives().await;
+    state.check_expired(&app, r).await
+}
+
+#[tauri::command]
+pub async fn choose_drive(app: AppHandle, state: State<'_, AppState>, drive_id: String) -> Result<()> {
+    if drive_id.is_empty() || !drive_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(Error::Config("invalid shared drive".into()));
+    }
+    let r = state.open_drive(&drive_id).await;
+    state.check_expired(&app, r).await?;
+    let _ = app.emit("vault-changed", ());
+    Ok(())
+}
+
+/// Go back to the drive list (e.g. the team made a new drive for a new season).
+#[tauri::command]
+pub async fn switch_drive(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    *state.vault.write().await = None;
+    *state.drive_name.write().await = None;
     let _ = app.emit("vault-changed", ());
     Ok(())
 }
 
 #[tauri::command]
 pub async fn sign_out(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    Auth::sign_out()?;
-    *state.vault.write().await = None;
+    state.sign_out().await?;
     let _ = app.emit("vault-changed", ());
     Ok(())
 }
@@ -174,17 +229,47 @@ pub async fn start_demo(app: AppHandle, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
+pub async fn get_team_settings(state: State<'_, AppState>) -> Result<TeamSettings> {
+    let v = state.vault().await?;
+    state.team.load(&v).await
+}
+
+#[tauri::command]
+pub async fn save_team_settings(state: State<'_, AppState>, settings: TeamSettings) -> Result<()> {
+    let v = state.vault().await?;
+    state.team.save(&v, &settings).await
+}
+
+/// Advanced: move the local vault folder (must match on every computer).
+#[tauri::command]
+pub async fn set_vault_folder(app: AppHandle, state: State<'_, AppState>, root: PathBuf) -> Result<()> {
+    if !root.is_absolute() {
+        return Err(Error::Config("use a full path like C:\\CAD\\Team Drive".into()));
+    }
+    let drive_id = state.vault().await?.drive_id.clone();
+    {
+        let mut cfg = state.config.write().await;
+        cfg.root = Some(root);
+        cfg.save(&state.config_path)?;
+    }
+    state.open_drive(&drive_id).await?;
+    let _ = app.emit("vault-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn list_children(state: State<'_, AppState>, parent_id: Option<String>) -> Result<Vec<Entry>> {
     let v = state.vault().await?;
     let all = v.index.all_files()?;
     let map = PathMap::build(&v.drive_id, &all);
     let sel = v.index.selections()?;
+    let by_id: ById = all.iter().map(|f| (f.id.as_str(), f)).collect();
     let parent = parent_id.unwrap_or_else(|| v.drive_id.clone());
     v.index
         .children(&parent)?
         .iter()
         .filter(|f| map.contains(&f.id))
-        .map(|f| entry(&v, f, &map, &all, &sel))
+        .map(|f| entry(&v, f, &map, &by_id, &sel))
         .collect()
 }
 
@@ -194,23 +279,64 @@ pub async fn set_selection(state: State<'_, AppState>, file_id: String, get: Opt
 }
 
 #[tauri::command]
-pub async fn sync_now(state: State<'_, AppState>) -> Result<PullReport> {
-    state.sync_once().await
+pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<PullReport> {
+    let r = state.sync_once().await;
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
-pub async fn check_out(state: State<'_, AppState>, file_id: String) -> Result<LockInfo> {
-    state.vault().await?.check_out(&file_id).await
+pub async fn check_out(app: AppHandle, state: State<'_, AppState>, file_id: String) -> Result<LockInfo> {
+    let r = state.vault().await?.check_out(&file_id).await;
+    if let Ok(l) = &r {
+        tracing::info!(file = %file_id, owner = %l.owner, "checked out");
+    }
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
-pub async fn undo_check_out(state: State<'_, AppState>, file_id: String, discard_changes: bool) -> Result<()> {
-    state.vault().await?.undo_check_out(&file_id, discard_changes).await
+pub async fn undo_check_out(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_id: String,
+    discard_changes: bool,
+) -> Result<()> {
+    let r = state.vault().await?.undo_check_out(&file_id, discard_changes).await;
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
-pub async fn break_lock(state: State<'_, AppState>, file_id: String) -> Result<()> {
-    state.vault().await?.break_lock(&file_id).await.map(|_| ())
+pub async fn break_lock(app: AppHandle, state: State<'_, AppState>, file_id: String) -> Result<()> {
+    let r = state.vault().await?.break_lock(&file_id).await.map(|_| ());
+    state.check_expired(&app, r).await
+}
+
+/// Delete a file for the whole team (to the shared drive's trash). Without
+/// `force`, refuses with "used by …" if an assembly is known to use it.
+#[tauri::command]
+pub async fn delete_from_drive(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_id: String,
+    force: bool,
+) -> Result<DeleteOutcome> {
+    let r = state.vault().await?.delete_from_drive(&file_id, force).await;
+    let _ = app.emit("vault-changed", ());
+    state.check_expired(&app, r).await
+}
+
+#[tauri::command]
+pub async fn open_logs(app: AppHandle) -> Result<()> {
+    let dir = super::log_dir(&app);
+    std::fs::create_dir_all(&dir)?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
+}
+
+/// A crash report from a previous run that the user hasn't been told about.
+#[tauri::command]
+pub async fn take_new_crash_report(app: AppHandle) -> Result<Option<PathBuf>> {
+    Ok(super::logging::take_new_crash_report(&super::log_dir(&app)))
 }
 
 #[derive(Serialize)]
@@ -226,10 +352,11 @@ pub async fn my_changes(state: State<'_, AppState>) -> Result<MyChanges> {
     let all = v.index.all_files()?;
     let map = PathMap::build(&v.drive_id, &all);
     let sel = v.index.selections()?;
+    let by_id: ById = all.iter().map(|f| (f.id.as_str(), f)).collect();
     let checked_out = all
         .iter()
         .filter(|f| v.i_hold_lock(f) && map.contains(&f.id))
-        .map(|f| entry(&v, f, &map, &all, &sel))
+        .map(|f| entry(&v, f, &map, &by_id, &sel))
         .collect::<Result<_>>()?;
     let mut new_files = Vec::new();
     collect_untracked(&v.root, Path::new(""), &map, &mut new_files)?;
@@ -281,7 +408,7 @@ async fn plan_check_in(state: &AppState, files: &[String], new_files: &[PathBuf]
     let v = state.vault().await?;
     let new_files = new_files.iter().map(|p| safe_rel(p)).collect::<Result<Vec<_>>>()?;
     let cfg = state.config.read().await.clone();
-    match (sidecar_path(&cfg).filter(|p| p.exists()), cfg.swdm_key) {
+    match (sidecar_path(&cfg).filter(|p| p.exists()), swdm_key(state, &v).await) {
         (Some(exe), Some(key)) => {
             let reader = SidecarRefs::new(exe, key);
             Ok(CheckInPreview { plan: v.prepare_check_in(&reader, files, &new_files).await?, refs_checked: true })
@@ -295,11 +422,13 @@ async fn plan_check_in(state: &AppState, files: &[String], new_files: &[PathBuf]
 
 #[tauri::command]
 pub async fn preview_check_in(
+    app: AppHandle,
     state: State<'_, AppState>,
     files: Vec<String>,
     new_files: Vec<PathBuf>,
 ) -> Result<CheckInPreview> {
-    plan_check_in(&state, &files, &new_files).await
+    let r = plan_check_in(&state, &files, &new_files).await;
+    state.check_expired(&app, r).await
 }
 
 #[derive(Deserialize)]
@@ -331,14 +460,20 @@ pub async fn check_in(app: AppHandle, state: State<'_, AppState>, args: CheckInA
     }
     let v = state.vault().await?;
     let _guard = state.sync_lock.lock().await;
-    let out = v
+    let r = v
         .push(PushRequest {
             files: preview.plan.files,
             new_files: preview.plan.new_files,
             message,
             keep_locked: args.keep_locked,
         })
-        .await?;
+        .await;
+    match &r {
+        Ok(out) => tracing::info!(changeset = %out.changeset, files = out.files, "checked in"),
+        Err(e) => tracing::warn!(%e, "check-in failed"),
+    }
+    drop(_guard);
+    let out = state.check_expired(&app, r).await?;
     let _ = app.emit("vault-changed", ());
     Ok(out)
 }

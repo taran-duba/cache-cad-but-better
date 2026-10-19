@@ -125,11 +125,18 @@ impl HttpDrive {
     /// Send a request built by `build`, retrying transient failures.
     async fn send(&self, build: impl Fn(&reqwest::Client) -> RequestBuilder) -> Result<Response> {
         let mut attempt = 0;
+        let mut refreshed = false;
         loop {
             attempt += 1;
             let token = self.auth.access_token().await?;
             let err = match build(&self.http).bearer_auth(token).send().await {
                 Ok(resp) if resp.status().is_success() => return Ok(resp),
+                Ok(resp) if resp.status().as_u16() == 401 && !refreshed => {
+                    // Access token rejected: get a fresh one and try once more.
+                    refreshed = true;
+                    self.auth.invalidate().await;
+                    continue;
+                }
                 Ok(resp) => {
                     let status = resp.status().as_u16();
                     let body = resp.text().await.unwrap_or_default();
@@ -249,6 +256,45 @@ impl HttpDrive {
         } else {
             None
         }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct SharedDrive {
+    pub id: String,
+    pub name: String,
+}
+
+impl HttpDrive {
+    /// Every shared drive the signed-in user is a member of.
+    pub async fn list_shared_drives(&self) -> Result<Vec<SharedDrive>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Page {
+            #[serde(default)]
+            drives: Vec<SharedDrive>,
+            next_page_token: Option<String>,
+        }
+        let mut out = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let page: Page = self
+                .json(|c| {
+                    let mut q = vec![("pageSize", "100"), ("fields", "nextPageToken,drives(id,name)")];
+                    if let Some(t) = &token {
+                        q.push(("pageToken", t.as_str()));
+                    }
+                    c.get(format!("{API}/drives")).query(&q)
+                })
+                .await?;
+            out.extend(page.drives);
+            match page.next_page_token {
+                Some(t) => token = Some(t),
+                None => break,
+            }
+        }
+        out.sort_by_key(|d| d.name.to_lowercase());
+        Ok(out)
     }
 }
 
@@ -419,6 +465,16 @@ impl DriveApi for HttpDrive {
         self.send(|c| {
             c.patch(format!("{API}/files/{file_id}/revisions/{revision_id}"))
                 .json(&json!({ "keepForever": true }))
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn trash_file(&self, file_id: &str) -> Result<()> {
+        self.send(|c| {
+            c.patch(format!("{API}/files/{file_id}"))
+                .query(&[("supportsAllDrives", "true"), ("fields", "id,trashed")])
+                .json(&json!({ "trashed": true }))
         })
         .await?;
         Ok(())

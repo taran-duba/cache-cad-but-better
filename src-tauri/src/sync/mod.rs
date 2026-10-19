@@ -6,6 +6,7 @@ pub mod localfs;
 pub mod locks;
 pub mod pull;
 pub mod push;
+pub mod remove;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

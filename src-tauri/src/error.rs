@@ -10,6 +10,10 @@ pub enum Error {
     Auth(String),
     #[error("{name} is checked out by {by}")]
     Locked { name: String, by: String },
+    #[error("{name} is used by {}", by.join(", "))]
+    InUse { name: String, by: Vec<String> },
+    #[error("your Google sign-in expired; sign in again")]
+    SignInExpired,
     #[error("you don't have {0} checked out")]
     NotCheckedOut(String),
     #[error("conflict: {0}")]

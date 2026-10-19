@@ -32,3 +32,7 @@ sidecar/**/obj/
 
 # Published SwRefs sidecar (scripts/publish-swrefs.ps1); embeds the SolidWorks interop DLL
 src-tauri/binaries/
+
+# Google OAuth client (baked in at build time; never commit)
+src-tauri/google-oauth.json
+client_secret*.json

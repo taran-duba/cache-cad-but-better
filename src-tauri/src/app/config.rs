@@ -1,6 +1,7 @@
-//! Per-machine settings, stored as JSON in the app config folder. The OAuth
-//! client and Document Manager key belong to the team and are entered once
-//! in Settings; they are never part of the source tree.
+//! Per-computer settings, stored as JSON in the app config folder. Users never
+//! edit these by hand: the drive is picked after sign-in, the vault folder has
+//! a default, the Google client is built in, and the Document Manager key is a
+//! team setting on the shared drive. `oauth` and `swdm_key` are overrides only.
 
 use std::path::{Path, PathBuf};
 
@@ -19,15 +20,9 @@ pub struct AppConfig {
     pub root: Option<PathBuf>,
     /// Path to SwRefs.exe; defaults to the bundled sidecar.
     pub sidecar_path: Option<PathBuf>,
-    /// SolidWorks Document Manager license key (from the SolidWorks customer portal).
+    /// Local override for the Document Manager key. Normally the key comes
+    /// from the team settings on the shared drive (see app/team.rs).
     pub swdm_key: Option<String>,
-    /// Seconds between background syncs.
-    #[serde(default = "default_poll")]
-    pub poll_seconds: u64,
-}
-
-fn default_poll() -> u64 {
-    15
 }
 
 pub fn default_root(drive_name: &str) -> PathBuf {
@@ -44,7 +39,7 @@ impl AppConfig {
         std::fs::read(path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or(AppConfig { poll_seconds: default_poll(), ..Default::default() })
+            .unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -74,9 +69,6 @@ impl AppConfig {
                 return Err("OAuth client id should end with .apps.googleusercontent.com".into());
             }
         }
-        if !(5..=3600).contains(&self.poll_seconds) {
-            return Err("Sync interval must be between 5 and 3600 seconds".into());
-        }
         Ok(())
     }
 }
@@ -87,7 +79,7 @@ mod tests {
 
     #[test]
     fn validates_settings() {
-        let mut c = AppConfig { poll_seconds: 15, ..Default::default() };
+        let mut c = AppConfig::default();
         assert!(c.validate().is_ok());
         c.drive_id = Some("0AbC-d_9".into());
         assert!(c.validate().is_ok());
@@ -97,19 +89,17 @@ mod tests {
         c.root = Some("relative/path".into());
         assert!(c.validate().is_err());
         c.root = None;
-        c.poll_seconds = 1;
-        assert!(c.validate().is_err());
+        assert!(c.validate().is_ok());
     }
 
     #[test]
     fn round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("config.json");
-        let c = AppConfig { drive_id: Some("0Abc".into()), poll_seconds: 30, ..Default::default() };
+        let c = AppConfig { drive_id: Some("0Abc".into()), ..Default::default() };
         c.save(&p).unwrap();
         let back = AppConfig::load(&p);
         assert_eq!(back.drive_id.as_deref(), Some("0Abc"));
-        assert_eq!(back.poll_seconds, 30);
-        assert_eq!(AppConfig::load(&dir.path().join("missing.json")).poll_seconds, 15);
+        assert!(AppConfig::load(&dir.path().join("missing.json")).drive_id.is_none());
     }
 }

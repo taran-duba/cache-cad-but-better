@@ -150,7 +150,7 @@ pub struct CheckInPlan {
 }
 
 /// Case-insensitive, slash-agnostic relative path of `p` under `root`.
-fn relative_to(root: &Path, p: &str) -> Option<PathBuf> {
+pub(crate) fn relative_to(root: &Path, p: &str) -> Option<PathBuf> {
     let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
     let (root_s, p_s) = (norm(&root.to_string_lossy()), norm(p));
     let rest = p_s.strip_prefix(&root_s)?.strip_prefix('/')?;

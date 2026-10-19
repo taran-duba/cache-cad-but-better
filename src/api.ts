@@ -28,12 +28,15 @@ export interface Entry {
 }
 
 export interface Status {
-  configured: boolean;
+  signInAvailable: boolean;
+  account: string | null;
   signedIn: boolean;
+  signInExpired: boolean;
   demo: boolean;
   me: string | null;
   root: string | null;
   driveId: string | null;
+  driveName: string | null;
   fileCount: number;
   pendingCheckIns: number;
   refsAvailable: boolean;
@@ -50,7 +53,15 @@ export interface AppConfig {
   root: string | null;
   sidecarPath: string | null;
   swdmKey: string | null;
-  pollSeconds: number;
+}
+
+export interface SharedDrive {
+  id: string;
+  name: string;
+}
+
+export interface TeamSettings {
+  swdmKey?: string | null;
 }
 
 export type Deferred =
@@ -60,6 +71,7 @@ export type Deferred =
 
 export interface PullReport {
   downloaded: number;
+  restored: number;
   moved: number;
   removed: number;
   conflicts: string[];
@@ -103,6 +115,12 @@ export const api = {
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) => invoke<void>("save_config", { config }),
   signIn: () => invoke<void>("sign_in"),
+  listSharedDrives: () => invoke<SharedDrive[]>("list_shared_drives"),
+  chooseDrive: (driveId: string) => invoke<void>("choose_drive", { driveId }),
+  switchDrive: () => invoke<void>("switch_drive"),
+  getTeamSettings: () => invoke<TeamSettings>("get_team_settings"),
+  saveTeamSettings: (settings: TeamSettings) => invoke<void>("save_team_settings", { settings }),
+  setVaultFolder: (root: string) => invoke<void>("set_vault_folder", { root }),
   signOut: () => invoke<void>("sign_out"),
   startDemo: () => invoke<void>("start_demo"),
   listChildren: (parentId: string | null) => invoke<Entry[]>("list_children", { parentId }),
@@ -125,6 +143,10 @@ export const api = {
   history: (limit?: number) => invoke<Manifest[]>("history", { limit }),
   revealRoot: () => invoke<void>("reveal_root"),
   frontendReady: () => invoke<void>("frontend_ready"),
+  deleteFromDrive: (fileId: string, force: boolean) =>
+    invoke<{ name: string; local_copy: string | null }>("delete_from_drive", { fileId, force }),
+  openLogs: () => invoke<void>("open_logs"),
+  takeNewCrashReport: () => invoke<string | null>("take_new_crash_report"),
 };
 
 export function errorText(e: unknown): string {
