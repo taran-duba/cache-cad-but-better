@@ -610,3 +610,52 @@ legend {
   border-radius: 6px;
   background: var(--panel);
 }
+
+.pill-button {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.pill-button:hover {
+  filter: brightness(0.95);
+}
+
+.pill-stale {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.help-row > td {
+  background: var(--hover);
+}
+
+.lock-help {
+  padding: 4px 4px 8px;
+  line-height: 1.5;
+  max-width: 760px;
+}
+
+.lock-help-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.lock-help-close {
+  margin-left: auto;
+}
+
+.lock-help ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.lock-help li {
+  margin-bottom: 8px;
+}
+
+.lock-help-warn {
+  margin-top: 8px;
+}

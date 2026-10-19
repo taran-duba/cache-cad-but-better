@@ -59,6 +59,12 @@ For a desktop app the "secret" isn't really secret; Google's sign-in protects it
 - When you're done, go to **My changes**, pick your files, click **Review check-in**, fix anything
   it flags, write what changed, and click **Check in**. Parts your assemblies use are added
   automatically.
+- **Check in or undo before you leave the shop.** A forgotten check-out blocks everyone else.
+  Check-outs older than a day are highlighted as "forgotten?".
+- **Need a file someone else has?** Click their 🔒 name, or **Need it?**. First ask them to check
+  it in (there's a button that copies a message for you). If you can't reach them, **Take it
+  over** breaks their lock and checks it out to you. Their edits that weren't checked in stay
+  only on their PC, as a separate copy.
 - Teammates get a check-in all at once. If they have the file open in SolidWorks, the update
   waits until they close it.
 - Rename and move CAD files from inside SolidWorks, not in Explorer. Renaming outside SolidWorks

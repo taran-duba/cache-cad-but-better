@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ago, api, Entry, errorText, who } from "../api";
 import type { ToastApi } from "../Toasts";
 
@@ -30,9 +30,10 @@ export function VaultView({
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [helpFor, setHelpFor] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{
     id: string;
-    kind: "undo" | "break" | "delete" | "in-use";
+    kind: "undo" | "delete" | "in-use";
     detail?: string;
   } | null>(null);
   const current = path[path.length - 1];
@@ -128,7 +129,8 @@ export function VaultView({
           </thead>
           <tbody>
             {shown.map((e) => (
-              <tr key={e.id} className={busy === e.id ? "busy" : ""}>
+              <Fragment key={e.id}>
+              <tr className={busy === e.id ? "busy" : ""}>
                 <td className="col-get">
                   <input
                     type="checkbox"
@@ -159,8 +161,16 @@ export function VaultView({
                   )}
                 </td>
                 <td>
-                  {!e.isFolder && e.selected && (
-                    <span className={`pill ${STATUS_LABEL[e.status][1]}`}>{STATUS_LABEL[e.status][0]}</span>
+                  {!e.isFolder && e.selected && e.status === "modified" && !e.mine ? (
+                    <span
+                      className="pill pill-bad"
+                      title="These edits can't be checked in because you don't have the file checked out (maybe a teammate took over the lock). Use File › Save As in SolidWorks to keep them under a new name."
+                    >
+                      Edited, not checked out
+                    </span>
+                  ) : (
+                    !e.isFolder &&
+                    e.selected && <span className={`pill ${STATUS_LABEL[e.status][1]}`}>{STATUS_LABEL[e.status][0]}</span>
                   )}
                 </td>
                 <td>
@@ -168,9 +178,14 @@ export function VaultView({
                     (e.mine ? (
                       <span className="pill pill-mine">You</span>
                     ) : (
-                      <span className="pill pill-lock" title={`${e.lock.owner} on ${e.lock.machine}`}>
+                      <button
+                        className={`pill pill-lock pill-button ${isStale(e.lock.locked_at) ? "pill-stale" : ""}`}
+                        title={`${e.lock.owner} on ${e.lock.machine} — click for options`}
+                        onClick={() => setHelpFor(helpFor === e.id ? null : e.id)}
+                      >
                         🔒 {who(e.lock.owner)} · {ago(e.lock.locked_at)}
-                      </span>
+                        {isStale(e.lock.locked_at) && " · forgotten?"}
+                      </button>
                     ))}
                 </td>
                 <td className="muted small">
@@ -199,13 +214,13 @@ export function VaultView({
                       Undo check-out
                     </button>
                   )}
-                  {!e.isFolder && e.lock && !e.mine && confirming?.id !== e.id && (
+                  {!e.isFolder && e.lock && !e.mine && (
                     <button
-                      className="btn btn-small btn-ghost"
+                      className="btn btn-small"
                       disabled={busy !== null}
-                      onClick={() => setConfirming({ id: e.id, kind: "break" })}
+                      onClick={() => setHelpFor(helpFor === e.id ? null : e.id)}
                     >
-                      Break lock
+                      Need it?
                     </button>
                   )}
                   {!e.isFolder && (!e.lock || e.mine) && confirming?.id !== e.id && (
@@ -256,28 +271,123 @@ export function VaultView({
                       </button>
                     </span>
                   )}
-                  {confirming?.id === e.id && confirming.kind === "break" && (
-                    <span className="confirm">
-                      <span className="small">
-                        {who(e.lock?.owner)} can't check in their edits after this.
-                      </span>
-                      <button
-                        className="btn btn-small btn-danger"
-                        onClick={() => act(e.id, () => api.breakLock(e.id), "Lock removed")}
-                      >
-                        Break it
-                      </button>
-                      <button className="btn btn-small btn-ghost" onClick={() => setConfirming(null)}>
-                        Cancel
-                      </button>
-                    </span>
-                  )}
+
                 </td>
               </tr>
+              {helpFor === e.id && e.lock && !e.mine && (
+                <tr className="help-row">
+                  <td colSpan={6}>
+                    <LockHelp
+                      entry={e}
+                      busy={busy !== null}
+                      onClose={() => setHelpFor(null)}
+                      onTakeOver={() =>
+                        act(
+                          e.id,
+                          async () => {
+                            await api.breakLock(e.id);
+                            await api.checkOut(e.id);
+                            setHelpFor(null);
+                          },
+                          `You have ${e.name} checked out now`,
+                        )
+                      }
+                      toasts={toasts}
+                    />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
       )}
     </section>
+  );
+}
+
+const DAY_MS = 24 * 3600 * 1000;
+
+function isStale(lockedAt: string) {
+  const t = Date.parse(lockedAt);
+  return !Number.isNaN(t) && Date.now() - t > DAY_MS;
+}
+
+/** What to do when someone else has the file you need. */
+function LockHelp({
+  entry,
+  busy,
+  onClose,
+  onTakeOver,
+  toasts,
+}: {
+  entry: Entry;
+  busy: boolean;
+  onClose: () => void;
+  onTakeOver: () => void;
+  toasts: ToastApi;
+}) {
+  const [sure, setSure] = useState(false);
+  const lock = entry.lock!;
+  const name = who(lock.owner);
+  const message = `Hey ${name}, can you check in ${entry.name} in cadsync (or Undo check-out if you didn't change it)? I need to edit it.`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      toasts.info("Message copied. Paste it to them in your team chat.");
+    } catch {
+      toasts.warn(message);
+    }
+  };
+
+  return (
+    <div className="lock-help">
+      <div className="lock-help-head">
+        <strong>
+          {name} has {entry.name} checked out
+        </strong>
+        <span className="muted small">
+          {" "}
+          on {lock.machine || "their computer"}, since {ago(lock.locked_at)}
+        </span>
+        <button className="btn btn-small btn-ghost lock-help-close" onClick={onClose} aria-label="Close">
+          ✕
+        </button>
+      </div>
+      <ol>
+        <li>
+          <strong>Ask {name} to check it in.</strong> If they didn't change anything, they can click{" "}
+          <em>Undo check-out</em>. When they do, the lock disappears here within about 15 seconds.{" "}
+          <button className="link" onClick={copy}>
+            Copy a message to send them
+          </button>
+        </li>
+        <li>
+          <strong>Can't reach them?</strong> (They left the shop, their laptop is off, they graduated…) You can take the
+          file over. You'll get the latest checked-in version.
+          {!sure ? (
+            <div className="row">
+              <button className="btn btn-small" disabled={busy} onClick={() => setSure(true)}>
+                Take it over…
+              </button>
+            </div>
+          ) : (
+            <div className="notice notice-warn lock-help-warn">
+              Anything {name} changed but didn't check in stays only on their computer and won't be in the team's
+              version. Their cadsync keeps it as a separate copy so it isn't lost, but someone has to redo or merge it.
+              <div className="row">
+                <button className="btn btn-small btn-danger" disabled={busy} onClick={onTakeOver}>
+                  Yes, take it over
+                </button>
+                <button className="btn btn-small btn-ghost" onClick={() => setSure(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </li>
+      </ol>
+    </div>
   );
 }

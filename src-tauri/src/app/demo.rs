@@ -36,7 +36,8 @@ pub async fn build(dir: &Path) -> Result<Vault<Backend>> {
     let lock = LockInfo {
         owner: "jordan@demo.team".into(),
         lock_id: "demo".into(),
-        locked_at: chrono::Utc::now().to_rfc3339(),
+        // Three days old, so the demo shows a probably-forgotten lock.
+        locked_at: (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339(),
         machine: "SHOP-PC-2".into(),
     };
     let teammate = drive.as_user("jordan@demo.team");
