@@ -48,6 +48,12 @@ pub fn run() {
             app::commands::history,
             app::commands::reveal_root,
             app::commands::frontend_ready,
+            app::commands::list_shared_drives,
+            app::commands::choose_drive,
+            app::commands::switch_drive,
+            app::commands::get_team_settings,
+            app::commands::save_team_settings,
+            app::commands::set_vault_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

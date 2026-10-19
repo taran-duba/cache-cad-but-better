@@ -250,15 +250,18 @@ impl<D: DriveApi> Vault<D> {
         Ok(parent_id)
     }
 
+    /// The hidden `.cadsync` folder at the drive root, created if missing.
+    pub(crate) async fn ensure_meta_folder(&self) -> Result<String> {
+        if let Some(id) = self.paths()?.meta_folder_id {
+            return Ok(id);
+        }
+        let f = self.drive.create_folder(&self.drive_id, META_FOLDER).await?;
+        self.index.apply_remote(std::slice::from_ref(&f), &[])?;
+        Ok(f.id)
+    }
+
     async fn write_manifest(&self, m: &Manifest) -> Result<()> {
-        let meta = match self.paths()?.meta_folder_id {
-            Some(id) => id,
-            None => {
-                let f = self.drive.create_folder(&self.drive_id, META_FOLDER).await?;
-                self.index.apply_remote(std::slice::from_ref(&f), &[])?;
-                f.id
-            }
-        };
+        let meta = self.ensure_meta_folder().await?;
         let changesets = match self.index.children(&meta)?.into_iter().find(|f| f.is_folder() && f.name == "changesets") {
             Some(f) => f.id,
             None => {

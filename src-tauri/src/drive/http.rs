@@ -252,6 +252,45 @@ impl HttpDrive {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct SharedDrive {
+    pub id: String,
+    pub name: String,
+}
+
+impl HttpDrive {
+    /// Every shared drive the signed-in user is a member of.
+    pub async fn list_shared_drives(&self) -> Result<Vec<SharedDrive>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Page {
+            #[serde(default)]
+            drives: Vec<SharedDrive>,
+            next_page_token: Option<String>,
+        }
+        let mut out = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let page: Page = self
+                .json(|c| {
+                    let mut q = vec![("pageSize", "100"), ("fields", "nextPageToken,drives(id,name)")];
+                    if let Some(t) = &token {
+                        q.push(("pageToken", t.as_str()));
+                    }
+                    c.get(format!("{API}/drives")).query(&q)
+                })
+                .await?;
+            out.extend(page.drives);
+            match page.next_page_token {
+                Some(t) => token = Some(t),
+                None => break,
+            }
+        }
+        out.sort_by_key(|d| d.name.to_lowercase());
+        Ok(out)
+    }
+}
+
 /// From a 308 response's `Range: bytes=0-N` header, the next byte to send.
 fn next_offset(r: &Response) -> Option<u64> {
     let range = r.headers().get("range")?.to_str().ok()?;

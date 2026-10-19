@@ -29,6 +29,17 @@ pub struct OAuthClient {
     pub client_secret: String,
 }
 
+impl OAuthClient {
+    /// The client compiled into this build (see build.rs), if any.
+    pub fn built_in() -> Option<Self> {
+        let id = option_env!("CADSYNC_BUILTIN_CLIENT_ID")?;
+        (!id.is_empty()).then(|| Self {
+            client_id: id.to_string(),
+            client_secret: option_env!("CADSYNC_BUILTIN_CLIENT_SECRET").unwrap_or_default().to_string(),
+        })
+    }
+}
+
 #[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,

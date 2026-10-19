@@ -502,3 +502,111 @@ legend {
 .toast-warn { border-left: 4px solid var(--warn); }
 .toast-error { border-left: 4px solid var(--bad); }
 .toast-info { border-left: 4px solid var(--ok); }
+
+.btn-danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ok-text {
+  color: var(--ok);
+}
+
+.btn-big {
+  padding: 10px 20px;
+  font-size: 15px;
+}
+
+.onboarding {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.onboarding-card {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.onboarding-card h1 {
+  font-size: 20px;
+  margin: 16px 0 6px;
+}
+
+.onboarding-brand {
+  font-weight: 650;
+  font-size: 15px;
+}
+
+.drive-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drive {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  text-align: left;
+}
+
+.drive:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.drive-icon {
+  color: var(--accent);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.setting-block {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.setting-label {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.inline-form input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}

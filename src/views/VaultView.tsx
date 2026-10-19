@@ -30,6 +30,7 @@ export function VaultView({
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [confirming, setConfirming] = useState<{ id: string; kind: "undo" | "break" } | null>(null);
   const current = path[path.length - 1];
 
   const load = () =>
@@ -43,6 +44,7 @@ export function VaultView({
   }, [current.id, revision]);
 
   const act = async (id: string, what: () => Promise<unknown>, done?: string) => {
+    setConfirming(null);
     setBusy(id);
     try {
       await what();
@@ -160,35 +162,63 @@ export function VaultView({
                       Check out
                     </button>
                   )}
-                  {!e.isFolder && e.mine && (
+                  {!e.isFolder && e.mine && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small"
                       disabled={busy !== null}
-                      onClick={() => {
-                        const discard =
-                          e.status === "modified" &&
-                          confirm(`Throw away your edits to ${e.name}? Click Cancel to keep them on this PC.`);
-                        act(e.id, () => api.undoCheckOut(e.id, discard), `Released ${e.name}`);
-                      }}
+                      onClick={() =>
+                        e.status === "modified"
+                          ? setConfirming({ id: e.id, kind: "undo" })
+                          : act(e.id, () => api.undoCheckOut(e.id, false), `Released ${e.name}`)
+                      }
                     >
                       Undo check-out
                     </button>
                   )}
-                  {!e.isFolder && e.lock && !e.mine && (
+                  {!e.isFolder && e.lock && !e.mine && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small btn-ghost"
                       disabled={busy !== null}
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Break ${who(e.lock!.owner)}'s lock on ${e.name}? Any edits they haven't checked in stay on their PC and won't be able to be checked in.`,
-                          )
-                        )
-                          act(e.id, () => api.breakLock(e.id), "Lock removed");
-                      }}
+                      onClick={() => setConfirming({ id: e.id, kind: "break" })}
                     >
                       Break lock
                     </button>
+                  )}
+                  {confirming?.id === e.id && confirming.kind === "undo" && (
+                    <span className="confirm">
+                      <span className="small">Your edits?</span>
+                      <button
+                        className="btn btn-small"
+                        onClick={() => act(e.id, () => api.undoCheckOut(e.id, false), `Released ${e.name}, edits kept`)}
+                      >
+                        Keep on this PC
+                      </button>
+                      <button
+                        className="btn btn-small btn-danger"
+                        onClick={() => act(e.id, () => api.undoCheckOut(e.id, true), `Released ${e.name}, edits discarded`)}
+                      >
+                        Throw away
+                      </button>
+                      <button className="btn btn-small btn-ghost" onClick={() => setConfirming(null)}>
+                        Cancel
+                      </button>
+                    </span>
+                  )}
+                  {confirming?.id === e.id && confirming.kind === "break" && (
+                    <span className="confirm">
+                      <span className="small">
+                        {who(e.lock?.owner)} can't check in their edits after this.
+                      </span>
+                      <button
+                        className="btn btn-small btn-danger"
+                        onClick={() => act(e.id, () => api.breakLock(e.id), "Lock removed")}
+                      >
+                        Break it
+                      </button>
+                      <button className="btn btn-small btn-ghost" onClick={() => setConfirming(null)}>
+                        Cancel
+                      </button>
+                    </span>
                   )}
                 </td>
               </tr>

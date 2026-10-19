@@ -12,9 +12,10 @@ order, and fill in the results table at the end.
 - **Two Windows PCs** with SolidWorks installed, called **PC A** and **PC B** below. A Mac can
   stand in for PC B in parts 3 and 4, but the SolidWorks steps (parts 5–7) need two Windows PCs.
 - **Two Google accounts**, **Alex** on PC A and **Blair** on PC B. Both need to be members of the
-  test shared drive with **Content manager** access.
-- The team's **OAuth client id and secret** and **Document Manager key** (see
-  [SETUP.md](SETUP.md), steps 1 and 3).
+  test shared drive with **Content manager** access. Name the drive **Test Drive** so the paths
+  in this guide (`C:\CAD\Test Drive`) match.
+- The Google client file saved as `src-tauri/google-oauth.json` before building, and the
+  **Document Manager key** (see [SETUP.md](SETUP.md)).
 - A small test assembly with **mates**: an assembly plus 2–3 parts, all in one folder.
   Something like a plate, a shaft and a gear with concentric and coincident mates is fine.
 
@@ -72,17 +73,20 @@ On **both** PCs:
    Running from source shows logs in the terminal. The installed app has no console window. To
    test the installer instead, build it with `pnpm tauri build` and install the `.exe` from
    `src-tauri\target\release\bundle\nsis\`.
-2. In **Settings**, enter:
-   - the OAuth client id and secret
-   - the **test** shared drive's URL
-   - the vault folder: `C:\CAD\Test Drive`, **the same on both PCs**
-   - the Document Manager key
-3. Click **Save and sign in with Google**, sign in as Alex (PC A) or Blair (PC B), and accept the
-   "unverified app" warning.
-4. In **Vault**, tick **Get** on the top-level folder.
+2. Click **Sign in with Google**, sign in as Alex (PC A) or Blair (PC B), accept the
+   "unverified app" warning, and allow Drive access.
+3. Pick the **test** shared drive from the list. If the account is only in one drive, it's
+   picked automatically.
+4. **PC A only:** in **Settings › SolidWorks reference checking**, paste the Document Manager
+   key and click **Save**.
+5. In **Vault**, tick **Get** on the top-level folder.
 
 **Expected:**
-- [ ] The browser opens Google sign-in. Afterwards the app shows your email in the top bar.
+- [ ] The browser opens Google sign-in. Afterwards the app lists your shared drives (or opens the
+  only one), then shows the drive name and your email in the top bar.
+- [ ] The vault folder is `C:\CAD\<drive name>` on both PCs (Settings › Advanced).
+- [ ] After PC A saves the key, PC B's Settings shows "Saved for the team" without anyone
+  typing it on PC B.
 - [ ] The sidebar does **not** show "Reference checking is off". If it does, the key or SwRefs
   isn't set up.
 - [ ] After a sync (click **Sync now**, or wait 15 s), files appear under `C:\CAD\Test Drive`.

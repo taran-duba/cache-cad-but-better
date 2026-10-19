@@ -5,6 +5,7 @@ import { VaultView } from "./views/VaultView";
 import { ChangesView } from "./views/ChangesView";
 import { HistoryView } from "./views/HistoryView";
 import { SettingsView } from "./views/SettingsView";
+import { Onboarding } from "./views/Onboarding";
 import { Toasts, useToasts } from "./Toasts";
 import "./App.css";
 
@@ -46,9 +47,6 @@ export default function App() {
     return () => unlisten.forEach((p) => p.then((f) => f()));
   }, [refreshStatus, toasts.warn]);
 
-  useEffect(() => {
-    if (status && !status.signedIn) setTab("settings");
-  }, [status?.signedIn]);
 
   const syncNow = async () => {
     setSyncing(true);
@@ -74,6 +72,15 @@ export default function App() {
 
   const signedIn = !!status?.signedIn;
 
+  if (!status) return <div className="onboarding muted">Starting…</div>;
+  if (!signedIn)
+    return (
+      <>
+        <Onboarding status={status} onChanged={changed} toasts={toasts} />
+        <Toasts state={toasts} />
+      </>
+    );
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -86,8 +93,8 @@ export default function App() {
         </div>
         {signedIn && (
           <div className="topbar-info">
-            <span title={status?.root ?? ""}>{status?.root}</span>
-            <span className="muted">· {status?.me}</span>
+            <span title={status.root ?? ""}>{status.driveName}</span>
+            <span className="muted">· {status.me}</span>
           </div>
         )}
         <div className="topbar-actions">
@@ -118,15 +125,14 @@ export default function App() {
             key={id}
             className={`navitem ${tab === id ? "active" : ""}`}
             onClick={() => setTab(id)}
-            disabled={!signedIn && id !== "settings"}
           >
             {label}
           </button>
         ))}
         {signedIn && !status?.refsAvailable && (
           <p className="nav-note">
-            Reference checking is off. Add the Document Manager key in Settings so check-ins can include
-            dependencies and catch broken references.
+            Reference checking is off, so check-ins can't add an assembly's parts for you. Add the team's
+            SolidWorks key in Settings (on Windows).
           </p>
         )}
       </nav>
