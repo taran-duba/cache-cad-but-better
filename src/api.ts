@@ -31,6 +31,7 @@ export interface Status {
   signInAvailable: boolean;
   account: string | null;
   signedIn: boolean;
+  signInExpired: boolean;
   demo: boolean;
   me: string | null;
   root: string | null;
@@ -70,6 +71,7 @@ export type Deferred =
 
 export interface PullReport {
   downloaded: number;
+  restored: number;
   moved: number;
   removed: number;
   conflicts: string[];
@@ -141,6 +143,10 @@ export const api = {
   history: (limit?: number) => invoke<Manifest[]>("history", { limit }),
   revealRoot: () => invoke<void>("reveal_root"),
   frontendReady: () => invoke<void>("frontend_ready"),
+  deleteFromDrive: (fileId: string, force: boolean) =>
+    invoke<{ name: string; local_copy: string | null }>("delete_from_drive", { fileId, force }),
+  openLogs: () => invoke<void>("open_logs"),
+  takeNewCrashReport: () => invoke<string | null>("take_new_crash_report"),
 };
 
 export function errorText(e: unknown): string {

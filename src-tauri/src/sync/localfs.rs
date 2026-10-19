@@ -27,12 +27,32 @@ pub fn is_read_only(path: &Path) -> bool {
     fs::metadata(path).map(|m| m.permissions().readonly()).unwrap_or(false)
 }
 
-/// True if SolidWorks has the document open (it keeps a `~$name` file beside it).
+/// True if SolidWorks (or anything else) has the document open. Two checks:
+/// SolidWorks' `~$name` marker file next to it, and on Windows, whether the
+/// file can be opened with no sharing allowed. SolidWorks keeps a handle on
+/// open documents, so that open fails with a sharing violation.
 pub fn is_open_in_cad(path: &Path) -> bool {
-    match (path.parent(), path.file_name()) {
+    let marker = match (path.parent(), path.file_name()) {
         (Some(dir), Some(name)) => dir.join(open_marker_name(&name.to_string_lossy())).exists(),
         _ => false,
+    };
+    marker || held_open_by_another_process(path)
+}
+
+#[cfg(windows)]
+fn held_open_by_another_process(path: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    const ERROR_LOCK_VIOLATION: i32 = 33;
+    match fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+        Ok(_) => false,
+        Err(e) => matches!(e.raw_os_error(), Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)),
     }
+}
+
+#[cfg(not(windows))]
+fn held_open_by_another_process(_path: &Path) -> bool {
+    false // SolidWorks only runs on Windows; the marker check covers tests elsewhere.
 }
 
 pub fn md5_file(path: &Path) -> Result<String> {
@@ -142,6 +162,22 @@ mod tests {
         assert!(!is_modified(&p, Some(&md5), None).unwrap(), "same content after touch");
         fs::write(&p, b"changed").unwrap();
         assert!(is_modified(&p, Some(&md5), fp).unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detects_files_held_open_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("Arm.SLDPRT");
+        fs::write(&p, b"x").unwrap();
+        assert!(!is_open_in_cad(&p));
+        let handle = fs::File::open(&p).unwrap(); // like SolidWorks holding it open
+        assert!(is_open_in_cad(&p));
+        drop(handle);
+        assert!(!is_open_in_cad(&p));
+        set_read_only(&p, true).unwrap();
+        assert!(!is_open_in_cad(&p), "read-only alone isn't 'open'");
+        set_read_only(&p, false).unwrap();
     }
 
     #[test]

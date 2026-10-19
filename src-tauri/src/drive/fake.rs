@@ -302,4 +302,12 @@ impl DriveApi for FakeDrive {
         self.state.lock().unwrap().kept_forever.push((file_id.into(), revision_id.into()));
         Ok(())
     }
+
+    async fn trash_file(&self, file_id: &str) -> Result<()> {
+        let mut s = self.state.lock().unwrap();
+        let mut f = Self::get(&s, file_id)?;
+        f.trashed = true;
+        Self::commit_change(&mut s, f);
+        Ok(())
+    }
 }

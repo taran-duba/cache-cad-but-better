@@ -19,6 +19,7 @@ use crate::refs::{CheckInPlan, Problem, SidecarRefs, StaticRefs};
 use crate::sync::localfs;
 use crate::sync::pull::{is_selected, PullReport};
 use crate::sync::push::{PushOutcome, PushRequest};
+use crate::sync::remove::DeleteOutcome;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +30,8 @@ pub struct Status {
     account: Option<String>,
     /// A shared drive is open.
     signed_in: bool,
+    /// Google rejected the saved sign-in; show "sign in again".
+    sign_in_expired: bool,
     demo: bool,
     me: Option<String>,
     root: Option<PathBuf>,
@@ -121,6 +124,7 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         sign_in_available: state.oauth_client().await.is_some(),
         account: state.account.read().await.clone(),
         signed_in: vault.is_some(),
+        sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
         demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),
@@ -185,8 +189,9 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
 
 /// The shared drives the signed-in account can use.
 #[tauri::command]
-pub async fn list_shared_drives(state: State<'_, AppState>) -> Result<Vec<SharedDrive>> {
-    state.http().await?.list_shared_drives().await
+pub async fn list_shared_drives(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<SharedDrive>> {
+    let r = state.http().await?.list_shared_drives().await;
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
@@ -194,7 +199,8 @@ pub async fn choose_drive(app: AppHandle, state: State<'_, AppState>, drive_id: 
     if drive_id.is_empty() || !drive_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err(Error::Config("invalid shared drive".into()));
     }
-    state.open_drive(&drive_id).await?;
+    let r = state.open_drive(&drive_id).await;
+    state.check_expired(&app, r).await?;
     let _ = app.emit("vault-changed", ());
     Ok(())
 }
@@ -273,23 +279,64 @@ pub async fn set_selection(state: State<'_, AppState>, file_id: String, get: Opt
 }
 
 #[tauri::command]
-pub async fn sync_now(state: State<'_, AppState>) -> Result<PullReport> {
-    state.sync_once().await
+pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<PullReport> {
+    let r = state.sync_once().await;
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
-pub async fn check_out(state: State<'_, AppState>, file_id: String) -> Result<LockInfo> {
-    state.vault().await?.check_out(&file_id).await
+pub async fn check_out(app: AppHandle, state: State<'_, AppState>, file_id: String) -> Result<LockInfo> {
+    let r = state.vault().await?.check_out(&file_id).await;
+    if let Ok(l) = &r {
+        tracing::info!(file = %file_id, owner = %l.owner, "checked out");
+    }
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
-pub async fn undo_check_out(state: State<'_, AppState>, file_id: String, discard_changes: bool) -> Result<()> {
-    state.vault().await?.undo_check_out(&file_id, discard_changes).await
+pub async fn undo_check_out(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_id: String,
+    discard_changes: bool,
+) -> Result<()> {
+    let r = state.vault().await?.undo_check_out(&file_id, discard_changes).await;
+    state.check_expired(&app, r).await
 }
 
 #[tauri::command]
-pub async fn break_lock(state: State<'_, AppState>, file_id: String) -> Result<()> {
-    state.vault().await?.break_lock(&file_id).await.map(|_| ())
+pub async fn break_lock(app: AppHandle, state: State<'_, AppState>, file_id: String) -> Result<()> {
+    let r = state.vault().await?.break_lock(&file_id).await.map(|_| ());
+    state.check_expired(&app, r).await
+}
+
+/// Delete a file for the whole team (to the shared drive's trash). Without
+/// `force`, refuses with "used by …" if an assembly is known to use it.
+#[tauri::command]
+pub async fn delete_from_drive(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_id: String,
+    force: bool,
+) -> Result<DeleteOutcome> {
+    let r = state.vault().await?.delete_from_drive(&file_id, force).await;
+    let _ = app.emit("vault-changed", ());
+    state.check_expired(&app, r).await
+}
+
+#[tauri::command]
+pub async fn open_logs(app: AppHandle) -> Result<()> {
+    let dir = super::log_dir(&app);
+    std::fs::create_dir_all(&dir)?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
+}
+
+/// A crash report from a previous run that the user hasn't been told about.
+#[tauri::command]
+pub async fn take_new_crash_report(app: AppHandle) -> Result<Option<PathBuf>> {
+    Ok(super::logging::take_new_crash_report(&super::log_dir(&app)))
 }
 
 #[derive(Serialize)]
@@ -375,11 +422,13 @@ async fn plan_check_in(state: &AppState, files: &[String], new_files: &[PathBuf]
 
 #[tauri::command]
 pub async fn preview_check_in(
+    app: AppHandle,
     state: State<'_, AppState>,
     files: Vec<String>,
     new_files: Vec<PathBuf>,
 ) -> Result<CheckInPreview> {
-    plan_check_in(&state, &files, &new_files).await
+    let r = plan_check_in(&state, &files, &new_files).await;
+    state.check_expired(&app, r).await
 }
 
 #[derive(Deserialize)]
@@ -411,14 +460,20 @@ pub async fn check_in(app: AppHandle, state: State<'_, AppState>, args: CheckInA
     }
     let v = state.vault().await?;
     let _guard = state.sync_lock.lock().await;
-    let out = v
+    let r = v
         .push(PushRequest {
             files: preview.plan.files,
             new_files: preview.plan.new_files,
             message,
             keep_locked: args.keep_locked,
         })
-        .await?;
+        .await;
+    match &r {
+        Ok(out) => tracing::info!(changeset = %out.changeset, files = out.files, "checked in"),
+        Err(e) => tracing::warn!(%e, "check-in failed"),
+    }
+    drop(_guard);
+    let out = state.check_expired(&app, r).await?;
     let _ = app.emit("vault-changed", ());
     Ok(out)
 }

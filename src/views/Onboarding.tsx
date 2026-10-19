@@ -48,6 +48,12 @@ function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () 
 
   return (
     <>
+      {status.signInExpired && (
+        <p className="notice notice-warn">
+          Your Google sign-in expired or was removed. Sign in again — your files and any unfinished check-in are still
+          here.
+        </p>
+      )}
       <h1>Your team's CAD, in sync.</h1>
       <p className="muted">
         Sign in with the Google account you use for your team's shared drive. You'll pick the drive next.

@@ -103,6 +103,16 @@ export function SettingsView({
         ) : null}
       </div>
 
+      <div className="setting-row">
+        <div>
+          <div className="setting-label">Something went wrong?</div>
+          <div className="muted small">The log file and any crash reports stay on this computer. Send them along with a bug report.</div>
+        </div>
+        <button className="btn" onClick={() => api.openLogs().catch((e) => toasts.error(errorText(e)))}>
+          Open logs folder
+        </button>
+      </div>
+
       <button className="link small" onClick={() => setShowAdvanced(!showAdvanced)}>
         {showAdvanced ? "Hide advanced" : "Advanced"}
       </button>

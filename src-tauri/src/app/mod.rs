@@ -6,6 +6,7 @@
 pub mod commands;
 pub mod config;
 mod demo;
+pub mod logging;
 pub mod smoke;
 pub mod team;
 
@@ -38,8 +39,18 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub data_dir: PathBuf,
     pub demo: std::sync::atomic::AtomicBool,
+    /// Set when Google rejected the saved sign-in; the welcome screen says so.
+    pub sign_in_expired: std::sync::atomic::AtomicBool,
     /// Serializes sync passes so the poller and a manual "Sync now" never overlap.
     pub sync_lock: tokio::sync::Mutex<()>,
+}
+
+/// Where the log file and crash reports go.
+pub fn log_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_log_dir()
+        .or_else(|_| app.path().app_data_dir().map(|d| d.join("logs")))
+        .unwrap_or_else(|_| PathBuf::from("cadsync-logs"))
 }
 
 fn machine_name() -> String {
@@ -66,6 +77,7 @@ impl AppState {
             config_path,
             data_dir,
             demo: Default::default(),
+            sign_in_expired: Default::default(),
             sync_lock: Default::default(),
         }
     }
@@ -91,6 +103,7 @@ impl AppState {
     /// Remember the Google sign-in, and open the saved drive if there is one.
     pub async fn set_auth(&self, auth: Arc<Auth>) -> Result<()> {
         let email = HttpDrive::new(auth.clone()).whoami().await?;
+        self.sign_in_expired.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.auth.write().await = Some(auth);
         *self.account.write().await = Some(email);
         if let Some(drive_id) = self.config.read().await.drive_id.clone() {
@@ -139,6 +152,24 @@ impl AppState {
         Ok(())
     }
 
+    /// Google rejected the saved sign-in (revoked, expired, password changed):
+    /// forget it and send the user back to the welcome screen. Local files and
+    /// any interrupted check-in journal are kept for when they sign in again.
+    pub async fn expire_sign_in(&self, app: &tauri::AppHandle) {
+        tracing::warn!("Google sign-in expired or was revoked");
+        let _ = self.sign_out().await;
+        self.sign_in_expired.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = app.emit("vault-changed", ());
+    }
+
+    /// Pass a result through, signing out first if it says the sign-in expired.
+    pub async fn check_expired<T>(&self, app: &tauri::AppHandle, r: Result<T>) -> Result<T> {
+        if matches!(r, Err(Error::SignInExpired)) {
+            self.expire_sign_in(app).await;
+        }
+        r
+    }
+
     pub async fn sign_out(&self) -> Result<()> {
         Auth::sign_out()?;
         *self.auth.write().await = None;
@@ -182,6 +213,7 @@ pub fn spawn_poller(app: tauri::AppHandle) {
                     Ok(report) => {
                         let _ = app.emit("sync-report", &report);
                     }
+                    Err(Error::SignInExpired) => state.expire_sign_in(&app).await,
                     Err(e) => {
                         tracing::warn!(%e, "background sync failed");
                         let _ = app.emit("sync-error", e.to_string());
@@ -203,8 +235,10 @@ pub fn restore_session(app: tauri::AppHandle) {
             }
         } else if let Some(client) = state.oauth_client().await {
             if let Some(auth) = Auth::from_saved(client) {
-                if let Err(e) = state.set_auth(Arc::new(auth)).await {
-                    tracing::warn!(%e, "saved sign-in could not be restored");
+                match state.set_auth(Arc::new(auth)).await {
+                    Ok(()) => {}
+                    Err(Error::SignInExpired) => state.expire_sign_in(&app).await,
+                    Err(e) => tracing::warn!(%e, "saved sign-in could not be restored"),
                 }
             }
         }

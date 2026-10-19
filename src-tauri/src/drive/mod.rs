@@ -138,6 +138,8 @@ pub trait DriveApi: Send + Sync {
     async fn create_folder(&self, parent_id: &str, name: &str) -> Result<RemoteFile>;
     async fn update_metadata(&self, file_id: &str, patch: MetadataPatch) -> Result<RemoteFile>;
     async fn keep_revision_forever(&self, file_id: &str, revision_id: &str) -> Result<()>;
+    /// Move a file to the shared drive's trash (recoverable for 30 days).
+    async fn trash_file(&self, file_id: &str) -> Result<()>;
 }
 
 /// The backend the app runs against: real Drive, or the in-memory demo.
@@ -197,5 +199,8 @@ impl DriveApi for Backend {
     }
     async fn keep_revision_forever(&self, file_id: &str, revision_id: &str) -> Result<()> {
         delegate!(self, d => d.keep_revision_forever(file_id, revision_id).await)
+    }
+    async fn trash_file(&self, file_id: &str) -> Result<()> {
+        delegate!(self, d => d.trash_file(file_id).await)
     }
 }

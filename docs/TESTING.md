@@ -251,6 +251,36 @@ Then sync.
   gets ` (2)`.
 - [ ] In Vault, renamed files show "→ local name" next to the Drive name.
 
+### 6g. Deleted files come back; Delete removes for everyone
+
+1. **PC B:** in Explorer, delete a part from the vault folder (clear Read-only first if Windows
+   asks). Click **Sync now**.
+2. **PC A:** in Vault, click **Delete** on a different part that no assembly uses, and confirm.
+3. **PC A:** click **Delete** on a part the test assembly uses.
+
+**Expected:**
+- [ ] After step 1 the part is back on PC B, with a message that it was put back.
+- [ ] After step 2 the part disappears on both PCs. It's in the shared drive's **Trash** on the
+  Drive website, and PC A's copy is in the app's trash folder.
+- [ ] In step 3, cadsync warns "… is used by TestAssembly.SLDASM" before deleting. This only works
+  if that assembly has been checked in from a PC with the SolidWorks key set.
+
+### 6h. Only one copy runs
+
+1. With cadsync open, start it again from the Start menu.
+
+**Expected:**
+- [ ] No second window opens. The existing window comes to the front.
+
+### 6i. Expired sign-in
+
+1. Go to <https://myaccount.google.com/connections>, find the cadsync app, and remove its access.
+2. Wait about 30 s, or click **Sync now**.
+
+**Expected:**
+- [ ] cadsync goes back to the welcome screen with "Your Google sign-in expired or was removed".
+- [ ] After signing in again, the same drive opens, and files and check-outs are as before.
+
 ## Part 7: Speed (on the team's real drive)
 
 This part is read-only (only tick **Get** on folders), so it's safe to run on the real team drive.
@@ -273,7 +303,7 @@ This part is read-only (only tick **Get** on folders), so it's safe to run on th
 | Local index (safe to delete; it rebuilds) | `%APPDATA%\org.frc.cadsync\<drive id>\index.sqlite` |
 | Files removed from the vault | `%APPDATA%\org.frc.cadsync\<drive id>\trash\` |
 | Check-in records on Drive | `.cadsync/changesets/` in the shared drive |
-| Logs | The terminal running `pnpm tauri dev` (with `RUST_LOG=cadsync=debug`) |
+| Logs and crash reports | Settings › **Open logs folder** (`%LOCALAPPDATA%\org.frc.cadsync\logs`). Set `RUST_LOG=cadsync=debug` for more detail. |
 
 ## Results
 
@@ -296,4 +326,7 @@ the log lines from around that time.
 | 6d. Conflict copy kept | | |
 | 6e. Break lock | | |
 | 6f. Odd names | | |
+| 6g. Deleted files restored, Delete for everyone | | |
+| 6h. Only one copy runs | | |
+| 6i. Expired sign-in | | |
 | 7. Speed (times and file count) | | |

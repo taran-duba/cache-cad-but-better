@@ -24,6 +24,9 @@ pub struct PullItem {
     pub md5: Option<String>,
     /// Local copy was edited without a check-out; keep it as a conflict copy.
     pub keep_local_as_conflict: bool,
+    /// The file was deleted on this computer and is being put back. Deleting
+    /// for the team goes through "Delete from Drive" instead.
+    pub restore: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -62,6 +65,8 @@ impl PullPlan {
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct PullReport {
     pub downloaded: usize,
+    /// Files deleted on this computer that were downloaded again.
+    pub restored: usize,
     pub moved: usize,
     pub removed: usize,
     pub conflicts: Vec<PathBuf>,
@@ -112,7 +117,9 @@ impl<D: DriveApi> Vault<D> {
             }
             let new = map.path(&l.file_id).expect("contains checked").to_path_buf();
             if new != old {
-                if localfs::is_open_in_cad(&self.abs(&old)) {
+                if !self.abs(&old).exists() {
+                    // Deleted locally; it's downloaded to the new path below.
+                } else if localfs::is_open_in_cad(&self.abs(&old)) {
                     plan.deferred.push(Deferred::Open { file_id: l.file_id.clone() });
                 } else {
                     plan.moves.push((l.file_id.clone(), old, new));
@@ -129,7 +136,9 @@ impl<D: DriveApi> Vault<D> {
             }
             let Some(rev) = f.head_revision_id.clone() else { continue };
             let local = locals.get(&f.id);
-            if local.and_then(|l| l.synced_rev.as_deref()) == Some(rev.as_str()) {
+            let rel = map.path(&f.id).expect("contains checked").to_path_buf();
+            let missing = local.is_some_and(|l| !self.abs(l.rel_path.as_ref()).exists() && !self.abs(&rel).exists());
+            if !missing && local.and_then(|l| l.synced_rev.as_deref()) == Some(rev.as_str()) {
                 continue;
             }
             if let Some(cs) = f.prop(props::PENDING_CHANGESET) {
@@ -150,9 +159,10 @@ impl<D: DriveApi> Vault<D> {
             let item = PullItem {
                 file_id: f.id.clone(),
                 revision: rev.clone(),
-                rel_path: map.path(&f.id).expect("contains checked").to_path_buf(),
+                rel_path: rel,
                 md5: f.md5.clone(),
                 keep_local_as_conflict: conflict,
+                restore: missing,
             };
             match self.index.changeset_for_revision(&f.id, &rev)? {
                 Some(cs) => groups.entry(cs).or_default().push(item),
@@ -259,6 +269,9 @@ impl<D: DriveApi> Vault<D> {
                 report.conflicts.push(copy);
             }
             localfs::replace(tmp, &dest)?;
+            if item.restore {
+                report.restored += 1;
+            }
             let f = self.index.file(&item.file_id)?;
             let mine = f.as_ref().is_some_and(|f| self.i_hold_lock(f));
             localfs::set_read_only(&dest, !mine)?;
@@ -348,6 +361,32 @@ mod tests {
         assert_eq!(r.downloaded, 1);
         assert_eq!(std::fs::read(&p).unwrap(), b"g2");
         assert_eq!(std::fs::read(&r.conflicts[0]).unwrap(), b"my unsaved idea");
+    }
+
+    #[tokio::test]
+    async fn restores_files_deleted_on_this_computer() {
+        let drive = FakeDrive::new("a@team.org");
+        let root = drive.drive_id.clone();
+        let arm = drive.seed_folder(&root, "Arm");
+        drive.seed_file(&arm, "Gear.SLDPRT", b"g1");
+        let fx = vault(&drive, "b@team.org", "pc-b");
+        let v = &fx.vault;
+        v.index.set_selection(&root, Some(true)).unwrap();
+        v.sync_down().await.unwrap();
+
+        // Delete one file, then the whole folder.
+        let p = v.root.join("Arm/Gear.SLDPRT");
+        localfs::set_read_only(&p, false).unwrap();
+        std::fs::remove_file(&p).unwrap();
+        let r = v.sync_down().await.unwrap();
+        assert_eq!((r.downloaded, r.restored), (1, 1));
+        assert_eq!(std::fs::read(&p).unwrap(), b"g1");
+
+        localfs::set_read_only(&p, false).unwrap();
+        std::fs::remove_dir_all(v.root.join("Arm")).unwrap();
+        let r = v.sync_down().await.unwrap();
+        assert_eq!(r.restored, 1);
+        assert!(p.exists() && localfs::is_read_only(&p));
     }
 
     #[test]

@@ -30,7 +30,11 @@ export function VaultView({
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [confirming, setConfirming] = useState<{ id: string; kind: "undo" | "break" } | null>(null);
+  const [confirming, setConfirming] = useState<{
+    id: string;
+    kind: "undo" | "break" | "delete" | "in-use";
+    detail?: string;
+  } | null>(null);
   const current = path[path.length - 1];
 
   const load = () =>
@@ -53,6 +57,26 @@ export function VaultView({
       onChanged();
     } catch (e) {
       toasts.error(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteFile = async (e: Entry, force: boolean) => {
+    setConfirming(null);
+    setBusy(e.id);
+    try {
+      await api.deleteFromDrive(e.id, force);
+      toasts.info(`Deleted ${e.name} for everyone. It's in the shared drive's trash for 30 days.`);
+      await load();
+      onChanged();
+    } catch (err) {
+      const text = errorText(err);
+      if (!force && text.includes(" is used by ")) {
+        setConfirming({ id: e.id, kind: "in-use", detail: text });
+      } else {
+        toasts.error(text);
+      }
     } finally {
       setBusy(null);
     }
@@ -153,7 +177,7 @@ export function VaultView({
                   {!e.isFolder && `${who(e.lastModifier)} · ${ago(e.modifiedTime)}`}
                 </td>
                 <td className="col-actions">
-                  {!e.isFolder && !e.lock && (
+                  {!e.isFolder && !e.lock && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small"
                       disabled={busy !== null}
@@ -183,6 +207,34 @@ export function VaultView({
                     >
                       Break lock
                     </button>
+                  )}
+                  {!e.isFolder && (!e.lock || e.mine) && confirming?.id !== e.id && (
+                    <button
+                      className="btn btn-small btn-ghost"
+                      disabled={busy !== null}
+                      title="Delete for the whole team (goes to the shared drive's trash)"
+                      onClick={() => setConfirming({ id: e.id, kind: "delete" })}
+                    >
+                      Delete
+                    </button>
+                  )}
+                  {confirming?.id === e.id && (confirming.kind === "delete" || confirming.kind === "in-use") && (
+                    <span className="confirm">
+                      <span className="small">
+                        {confirming.kind === "in-use"
+                          ? `${confirming.detail}. Deleting it will break those for everyone.`
+                          : "Delete for the whole team?"}
+                      </span>
+                      <button
+                        className="btn btn-small btn-danger"
+                        onClick={() => deleteFile(e, confirming.kind === "in-use")}
+                      >
+                        {confirming.kind === "in-use" ? "Delete anyway" : "Delete"}
+                      </button>
+                      <button className="btn btn-small btn-ghost" onClick={() => setConfirming(null)}>
+                        Cancel
+                      </button>
+                    </span>
                   )}
                   {confirming?.id === e.id && confirming.kind === "undo" && (
                     <span className="confirm">

@@ -400,6 +400,14 @@ impl Index {
         Ok(())
     }
 
+    /// Every (from file id, referenced path) pair.
+    pub fn all_refs(&self) -> Result<Vec<(String, String)>> {
+        let conn = self.conn();
+        let mut st = conn.prepare_cached("SELECT from_id, to_path FROM refs")?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn refs(&self, from_id: &str) -> Result<Vec<String>> {
         let conn = self.conn();
         let mut st = conn.prepare_cached("SELECT to_path FROM refs WHERE from_id = ?1")?;

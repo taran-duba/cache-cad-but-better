@@ -30,6 +30,10 @@ export default function App() {
   useEffect(() => {
     // Tell Rust the UI rendered and IPC works (the CI smoke test waits for this).
     refreshStatus().then(() => api.frontendReady().catch(() => {}));
+    api
+      .takeNewCrashReport()
+      .then((p) => p && toasts.warn("cadsync crashed last time. A crash report was saved — Settings › Open logs folder."))
+      .catch(() => {});
     const unlisten = [
       listen("vault-changed", () => {
         refreshStatus();
@@ -41,6 +45,7 @@ export default function App() {
         setRevision((r) => r + 1);
         refreshStatus();
         e.payload.conflicts.forEach((c) => toasts.warn(`Kept your unsaved edits as ${c}`));
+        if (e.payload.restored > 0) toasts.info(restoredText(e.payload.restored));
       }),
       listen<string>("sync-error", (e) => setLastSync({ at: new Date(), error: e.payload })),
     ];
@@ -55,6 +60,7 @@ export default function App() {
       setLastSync({ at: new Date(), report });
       report.errors.forEach((e) => toasts.error(e));
       report.conflicts.forEach((c) => toasts.warn(`Kept your unsaved edits as ${c}`));
+      if (report.restored > 0) toasts.info(restoredText(report.restored));
       setRevision((r) => r + 1);
       refreshStatus();
     } catch (e) {
@@ -173,4 +179,8 @@ function SyncState({
       {waiting > 0 && ` · ${waiting} waiting for SolidWorks to close`}
     </span>
   );
+}
+
+function restoredText(n: number) {
+  return `Put back ${n} file(s) deleted on this computer. To delete a file for the whole team, use Delete in the Vault tab.`;
 }

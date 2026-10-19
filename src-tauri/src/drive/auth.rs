@@ -146,6 +146,11 @@ impl Auth {
         Ok(auth)
     }
 
+    /// Forget the cached access token (after Drive rejects it with 401).
+    pub async fn invalidate(&self) {
+        *self.access.lock().await = None;
+    }
+
     /// A valid access token, refreshed when it is within a minute of expiring.
     pub async fn access_token(&self) -> Result<String> {
         let mut guard = self.access.lock().await;
@@ -184,7 +189,22 @@ async fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
     }
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
-    Err(Error::Auth(format!("token endpoint returned {status}: {body}")))
+    Err(token_error(status, &body))
+}
+
+/// Only a 400 `invalid_grant` means the sign-in is really gone (revoked,
+/// expired, password change). Rate limits and server errors are temporary and
+/// must not sign anyone out.
+fn token_error(status: u16, body: &str) -> Error {
+    let reason = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v["error"].as_str().map(String::from))
+        .unwrap_or_default();
+    match (status, reason.as_str()) {
+        (400, "invalid_grant") => Error::SignInExpired,
+        (429, _) | (500..=599, _) => Error::Network(format!("Google sign-in service returned {status}")),
+        _ => Error::Auth(format!("token endpoint returned {status}: {reason}")),
+    }
 }
 
 /// Accept connections on the loopback listener until Google redirects back.
@@ -219,5 +239,20 @@ async fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<S
         );
         let _ = sock.write_all(resp.as_bytes()).await;
         return outcome;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_invalid_grant_means_signed_out() {
+        assert!(matches!(token_error(400, r#"{"error":"invalid_grant"}"#), Error::SignInExpired));
+        assert!(matches!(token_error(503, r#"{"error":"invalid_grant"}"#), Error::Network(_)));
+        assert!(matches!(token_error(429, ""), Error::Network(_)));
+        assert!(matches!(token_error(400, r#"{"error":"invalid_client"}"#), Error::Auth(_)));
+        assert!(token_error(503, "").is_transient());
+        assert!(!Error::SignInExpired.is_transient());
     }
 }
