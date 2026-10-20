@@ -83,6 +83,15 @@ Windows dev machine run `pnpm sidecar` once first. Without SolidWorks, use
 macOS and Linux builds don't bundle SwRefs. The Windows-only settings are in
 `tauri.windows.conf.json`.
 
+## Mac build
+
+CI builds an Apple Silicon `cadsync.app` and `.dmg` on every push (`.github/workflows/macos.yml`).
+It's ad-hoc signed, not notarized, so on another Mac the first launch needs right-click › Open.
+There's no Intel build yet. SolidWorks doesn't run on macOS, so reference checking is off there;
+syncing, locks and check-ins work.
+
+Build one yourself with `pnpm tauri build`.
+
 ## Not done yet
 
 - Not yet run against real Google Drive or SolidWorks. Work through
