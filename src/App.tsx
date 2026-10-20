@@ -7,6 +7,7 @@ import { HistoryView } from "./views/HistoryView";
 import { SettingsView } from "./views/SettingsView";
 import { Onboarding } from "./views/Onboarding";
 import { Toasts, useToasts } from "./Toasts";
+import { Spinner, useDelayedFlag } from "./Spinner";
 import "./App.css";
 
 type Tab = "vault" | "changes" | "history" | "settings";
@@ -14,14 +15,20 @@ type Tab = "vault" | "changes" | "history" | "settings";
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [tab, setTab] = useState<Tab>("vault");
-  const [syncing, setSyncing] = useState(false);
+  const [syncing, setSyncing] = useState(false); // "Sync now" was clicked
+  const [bgSyncing, setBgSyncing] = useState(false); // the background loop is syncing
+  const syncActive = syncing || bgSyncing;
+  // Quick background syncs shouldn't flash the indicator; slow ones should show it.
+  const showSync = useDelayedFlag(syncActive);
   const [lastSync, setLastSync] = useState<{ at: Date; report?: PullReport; error?: string } | null>(null);
   const [revision, setRevision] = useState(0); // bump to make views reload
   const toasts = useToasts();
 
   const refreshStatus = useCallback(async () => {
     try {
-      setStatus(await api.status());
+      const s = await api.status();
+      setStatus(s);
+      setBgSyncing(s.syncing); // a fetched snapshot is the truth; events update it in between
     } catch (e) {
       toasts.error(errorText(e));
     }
@@ -58,6 +65,7 @@ export default function App() {
         if (e.payload.restored > 0) toasts.info(restoredText(e.payload.restored));
       }),
       listen<string>("sync-error", (e) => setLastSync({ at: new Date(), error: e.payload })),
+      listen<boolean>("sync-state", (e) => setBgSyncing(e.payload)),
     ];
     return () => unlisten.forEach((p) => p.then((f) => f()));
   }, [refreshStatus, toasts.warn]);
@@ -88,7 +96,14 @@ export default function App() {
 
   const signedIn = !!status?.signedIn;
 
-  if (!status) return <div className="onboarding muted">Starting…</div>;
+  if (!status)
+    return (
+      <div className="onboarding">
+        <div className="starting">
+          <Spinner size={18} label="Starting" /> Starting cadsync…
+        </div>
+      </div>
+    );
   if (!signedIn)
     return (
       <>
@@ -99,6 +114,7 @@ export default function App() {
 
   return (
     <div className="shell">
+      {showSync && <div className="progress-bar" aria-hidden />}
       <header className="topbar">
         <div className="brand">
           <span className="logo" aria-hidden>
@@ -114,7 +130,7 @@ export default function App() {
           </div>
         )}
         <div className="topbar-actions">
-          {signedIn && <SyncState syncing={syncing} last={lastSync} pending={status?.pendingCheckIns ?? 0} />}
+          {signedIn && <SyncState syncing={showSync} last={lastSync} pending={status?.pendingCheckIns ?? 0} />}
           {signedIn && (
             <button className="btn" onClick={() => api.revealRoot().catch((e) => toasts.error(errorText(e)))}>
               Open folder
@@ -122,6 +138,7 @@ export default function App() {
           )}
           {signedIn && (
             <button className="btn btn-primary" onClick={syncNow} disabled={syncing}>
+              {syncing && <Spinner size={12} />}
               {syncing ? "Syncing…" : "Sync now"}
             </button>
           )}
@@ -154,10 +171,14 @@ export default function App() {
       </nav>
 
       <main className="content">
-        {tab === "vault" && signedIn && <VaultView revision={revision} onChanged={changed} toasts={toasts} />}
-        {tab === "changes" && signedIn && <ChangesView revision={revision} onChanged={changed} toasts={toasts} />}
-        {tab === "history" && signedIn && <HistoryView revision={revision} />}
-        {tab === "settings" && <SettingsView status={status} onChanged={changed} toasts={toasts} />}
+        <div key={tab} className="view-enter">
+          {tab === "vault" && signedIn && (
+            <VaultView revision={revision} onChanged={changed} toasts={toasts} syncing={syncActive} />
+          )}
+          {tab === "changes" && signedIn && <ChangesView revision={revision} onChanged={changed} toasts={toasts} />}
+          {tab === "history" && signedIn && <HistoryView revision={revision} />}
+          {tab === "settings" && <SettingsView status={status} onChanged={changed} toasts={toasts} />}
+        </div>
       </main>
       <Toasts state={toasts} />
     </div>
@@ -173,7 +194,12 @@ function SyncState({
   last: { at: Date; report?: PullReport; error?: string } | null;
   pending: number;
 }) {
-  if (syncing) return <span className="muted">Syncing…</span>;
+  if (syncing)
+    return (
+      <span className="sync-chip">
+        <Spinner size={12} label="Syncing" /> Syncing…
+      </span>
+    );
   if (pending > 0) return <span className="pill pill-warn">{pending} check-in(s) waiting to finish</span>;
   if (!last) return null;
   if (last.error)

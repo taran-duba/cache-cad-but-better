@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ago, api, errorText, Manifest, who } from "../api";
+import { Skeleton } from "../Spinner";
 
 export function HistoryView({ revision }: { revision: number }) {
   const [items, setItems] = useState<Manifest[] | null>(null);
@@ -13,7 +14,7 @@ export function HistoryView({ revision }: { revision: number }) {
   }, [revision]);
 
   if (error) return <p className="notice notice-bad">{error}</p>;
-  if (!items) return <p className="muted pad">Loading…</p>;
+  if (!items) return <Skeleton rows={5} />;
   if (items.length === 0) return <p className="muted pad">No check-ins yet.</p>;
 
   return (

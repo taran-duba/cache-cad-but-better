@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { ago, api, Entry, errorText, who } from "../api";
+import { Skeleton, Spinner } from "../Spinner";
 import type { ToastApi } from "../Toasts";
 
 const KIND_ICON: Record<string, string> = { part: "▣", assembly: "◈", drawing: "▤", other: "▢" };
@@ -21,12 +22,15 @@ export function VaultView({
   revision,
   onChanged,
   toasts,
+  syncing,
 }: {
   revision: number;
   onChanged: () => void;
   toasts: ToastApi;
+  /** A sync pass is running (so an empty list may just mean it hasn't arrived yet). */
+  syncing: boolean;
 }) {
-  const [path, setPath] = useState<Crumb[]>([{ id: null, name: "Shared drive" }]);
+  const [path, setPath] = useState<Crumb[]>([{ id: null, name: "CAD folder" }]);
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -110,7 +114,18 @@ export function VaultView({
       </div>
 
       {rows === null ? (
-        <p className="muted pad">Loading…</p>
+        <Skeleton rows={6} />
+      ) : shown.length === 0 && !filter && syncing && path.length === 1 ? (
+        <p className="status-banner">
+          <Spinner size={18} label="Reading your CAD folder" />
+          <span>
+            Reading your CAD folder…
+            <span className="small">
+              The first time, cadsync reads every file name in it. Big folders can take a minute; after that it only
+              checks for changes.
+            </span>
+          </span>
+        </p>
       ) : shown.length === 0 ? (
         <p className="muted pad">{filter ? "No matches." : "This folder is empty."}</p>
       ) : (
@@ -127,7 +142,7 @@ export function VaultView({
               <th className="col-actions" />
             </tr>
           </thead>
-          <tbody>
+          <tbody key={current.id ?? "root"}>
             {shown.map((e) => (
               <Fragment key={e.id}>
               <tr className={busy === e.id ? "busy" : ""}>
@@ -192,6 +207,12 @@ export function VaultView({
                   {!e.isFolder && `${who(e.lastModifier)} · ${ago(e.modifiedTime)}`}
                 </td>
                 <td className="col-actions">
+                  {busy === e.id ? (
+                    <span className="working">
+                      <Spinner size={12} label="Working" /> Working…
+                    </span>
+                  ) : (
+                    <>
                   {!e.isFolder && !e.lock && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small"
@@ -271,7 +292,8 @@ export function VaultView({
                       </button>
                     </span>
                   )}
-
+                    </>
+                  )}
                 </td>
               </tr>
               {helpFor === e.id && e.lock && !e.mine && (

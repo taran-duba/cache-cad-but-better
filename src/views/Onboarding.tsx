@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorText, Status } from "../api";
 import type { ToastApi } from "../Toasts";
+import { Skeleton, Spinner, useDelayedFlag } from "../Spinner";
 
 /** Shown until a shared drive is open: sign in with Google, then pick the drive. */
 export function Onboarding({
@@ -33,6 +34,7 @@ export function Onboarding({
 
 function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () => void; toasts: ToastApi }) {
   const [busy, setBusy] = useState(false);
+  const slowSignIn = useDelayedFlag(busy, 8000, 0);
 
   const run = async (what: () => Promise<unknown>) => {
     setBusy(true);
@@ -59,14 +61,28 @@ function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () 
         Sign in with the Google account you use for your team's CAD files. You'll pick the folder next.
       </p>
       {status.restoring ? (
-        <p className="notice">
-          Signing you back in… If your Mac asks to allow cadsync to use the keychain, choose{" "}
-          <strong>Always Allow</strong>.
+        <p className="status-banner">
+          <Spinner size={18} label="Signing you back in" />
+          <span>
+            Signing you back in…
+            <span className="small">
+              If your Mac asks to allow cadsync to use the keychain, choose <strong>Always Allow</strong>.
+            </span>
+          </span>
         </p>
       ) : status.signInAvailable ? (
-        <button className="btn btn-primary btn-big" onClick={() => run(api.signIn)} disabled={busy}>
-          {busy ? "Finish signing in in your browser…" : "Sign in with Google"}
-        </button>
+        <>
+          <button className="btn btn-primary btn-big" onClick={() => run(api.signIn)} disabled={busy}>
+            {busy && <Spinner size={14} label="Waiting for Google" />}
+            {busy ? "Finish signing in in your browser…" : "Sign in with Google"}
+          </button>
+          {slowSignIn && (
+            <p className="small muted fade-in">
+              A browser window should have opened. If you don't see it, check behind this window. This waits up to
+              5 minutes.
+            </p>
+          )}
+        </>
       ) : (
         <p className="notice notice-warn">
           This copy of cadsync was built without Google sign-in. Whoever builds the app needs to add the team's
@@ -174,12 +190,23 @@ function FolderPicker({ account, onChanged, toasts }: { account: string; onChang
 
       {here?.pickable && (
         <button className="btn btn-primary picker-use" disabled={busy} onClick={() => choose(here.id)}>
+          {busy && <Spinner size={12} label="Opening" />}
           {busy ? "Opening…" : `Use “${here.name}”`}
         </button>
       )}
 
+      {busy && (
+        <p className="status-banner">
+          <Spinner size={18} label="Opening your folder" />
+          <span>
+            Opening your folder…
+            <span className="small">The first time, cadsync reads every file name in it. Big folders can take a minute.</span>
+          </span>
+        </p>
+      )}
+
       {items === null ? (
-        <p className="muted">Loading…</p>
+        <Skeleton rows={4} />
       ) : items.length === 0 ? (
         <p className="muted small">{here ? "No folders in here." : "Nothing found for this account."}</p>
       ) : (

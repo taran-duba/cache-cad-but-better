@@ -42,6 +42,9 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub data_dir: PathBuf,
     pub demo: std::sync::atomic::AtomicBool,
+    /// How many sync passes are running (background poll and "Sync now" can overlap).
+    /// The window shows its sync indicator while this is above zero.
+    pub syncing: std::sync::atomic::AtomicUsize,
     /// True while the saved sign-in is being restored at startup (the system
     /// keychain may be asking for permission), so the window says so instead of
     /// showing a Sign in button that would race it.
@@ -88,6 +91,7 @@ impl AppState {
             config_path,
             data_dir,
             demo: Default::default(),
+            syncing: Default::default(),
             restoring: Default::default(),
             sign_in_expired: Default::default(),
             sync_lock: Default::default(),
@@ -226,6 +230,20 @@ impl AppState {
         Ok(())
     }
 
+    /// `sync_once`, telling the window when syncing starts and stops so it can
+    /// show activity instead of looking frozen.
+    pub async fn sync_tracked(&self, app: &tauri::AppHandle) -> Result<crate::sync::pull::PullReport> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.syncing.fetch_add(1, SeqCst) == 0 {
+            let _ = app.emit("sync-state", true);
+        }
+        let r = self.sync_once().await;
+        if self.syncing.fetch_sub(1, SeqCst) == 1 {
+            let _ = app.emit("sync-state", false);
+        }
+        r
+    }
+
     /// One sync pass: finish interrupted check-ins, refresh, get files.
     pub async fn sync_once(&self) -> Result<crate::sync::pull::PullReport> {
         tracing::debug!("sync: waiting for the sync lock");
@@ -285,7 +303,7 @@ pub fn spawn_poller(app: tauri::AppHandle) {
             tracing::debug!("poller: tick");
             if state.vault.read().await.is_some() {
                 tracing::debug!("poller: starting a sync pass");
-                match state.sync_once().await {
+                match state.sync_tracked(&app).await {
                     Ok(report) => {
                         let _ = app.emit("sync-report", &report);
                     }

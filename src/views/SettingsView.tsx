@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorText, Status } from "../api";
 import type { ToastApi } from "../Toasts";
+import { Spinner } from "../Spinner";
 
 export function SettingsView({
   status,
@@ -93,6 +94,7 @@ export function SettingsView({
               }, "Saved for everyone on the team")
             }
           >
+            {busy && <Spinner size={12} />}
             Save
           </button>
         </div>

@@ -33,6 +33,7 @@ export interface Status {
   signedIn: boolean;
   signInExpired: boolean;
   restoring: boolean;
+  syncing: boolean;
   demo: boolean;
   me: string | null;
   root: string | null;

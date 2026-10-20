@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, CheckInPreview, errorText, MyChanges, Problem } from "../api";
 import type { ToastApi } from "../Toasts";
+import { Skeleton, Spinner } from "../Spinner";
 
 function describe(p: Problem): { title: string; detail: string; fix: string } {
   switch (p.kind) {
@@ -50,6 +51,7 @@ export function ChangesView({
   const [keepLocked, setKeepLocked] = useState(false);
   const [allowDupes, setAllowDupes] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
 
   const load = () =>
     api
@@ -78,13 +80,13 @@ export function ChangesView({
   };
 
   const review = async () => {
-    setBusy(true);
+    setReviewing(true);
     try {
       setPreview(await api.previewCheckIn([...picked], [...pickedNew]));
     } catch (e) {
       toasts.error(errorText(e));
     } finally {
-      setBusy(false);
+      setReviewing(false);
     }
   };
 
@@ -114,7 +116,7 @@ export function ChangesView({
     }
   };
 
-  if (!changes) return <p className="muted pad">Loading…</p>;
+  if (!changes) return <Skeleton rows={3} />;
   const nothing = changes.checkedOut.length === 0 && changes.newFiles.length === 0;
 
   return (
@@ -164,8 +166,13 @@ export function ChangesView({
 
       {!nothing && (
         <div className="row">
-          <button className="btn" onClick={review} disabled={busy || (picked.size === 0 && pickedNew.size === 0)}>
-            Review check-in
+          <button
+            className="btn"
+            onClick={review}
+            disabled={busy || reviewing || (picked.size === 0 && pickedNew.size === 0)}
+          >
+            {reviewing && <Spinner size={12} label="Checking" />}
+            {reviewing ? "Checking your files…" : "Review check-in"}
           </button>
         </div>
       )}
@@ -238,9 +245,15 @@ export function ChangesView({
               onClick={checkIn}
               disabled={busy || blocking.length > 0 || message.trim() === ""}
             >
+              {busy && <Spinner size={12} label="Checking in" />}
               {busy ? "Checking in…" : "Check in"}
             </button>
           </div>
+          {busy && (
+            <p className="small muted fade-in">
+              Uploading your files and recording the check-in. Keep cadsync open until this finishes.
+            </p>
+          )}
         </div>
       )}
     </section>
