@@ -298,6 +298,18 @@ impl HttpDrive {
     }
 }
 
+/// Keep the shared drive as the listing scope only if the user can see the
+/// drive. Asking Drive about a drive you're not a member of gives 404 (or 403);
+/// any other status is a real problem, so the drive scope stays and the error
+/// shows up when listing.
+fn scope_after_probe(drive_id: String, status: u16) -> Option<String> {
+    if matches!(status, 403 | 404) {
+        None
+    } else {
+        Some(drive_id)
+    }
+}
+
 /// Escape a value placed inside single quotes in a Drive `q` expression.
 fn escape_q(v: &str) -> String {
     v.replace('\\', "\\\\").replace('\'', "\\'")
@@ -407,7 +419,18 @@ impl DriveApi for HttpDrive {
                     .query(&[("supportsAllDrives", "true"), ("fields", "id,name,mimeType,driveId")])
             })
             .await?;
-        Ok(FolderInfo { is_folder: f.mime_type == FOLDER_MIME, id: f.id, name: f.name, drive_id: f.drive_id })
+        // A folder can be in a shared drive without you being a member (someone
+        // shared just the folder). Listing "as the drive" is refused then, so
+        // only scope to the drive if we can see it.
+        let drive_id = match f.drive_id {
+            Some(d) => match self.send(|c| c.get(format!("{API}/drives/{d}")).query(&[("fields", "id")])).await {
+                Ok(_) => Some(d),
+                Err(Error::Drive { status, .. }) => scope_after_probe(d, status),
+                Err(e) => return Err(e), // couldn't tell (network); don't guess
+            },
+            None => None,
+        };
+        Ok(FolderInfo { is_folder: f.mime_type == FOLDER_MIME, id: f.id, name: f.name, drive_id })
     }
 
     async fn list_children(&self, scope: Option<&str>, parents: &[String], page_token: Option<&str>) -> Result<FilePage> {
@@ -578,5 +601,17 @@ impl DriveApi for HttpDrive {
         })
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scopes_to_the_drive_only_for_members() {
+        assert_eq!(scope_after_probe("D".into(), 404), None, "folder shared from a drive you're not in");
+        assert_eq!(scope_after_probe("D".into(), 403), None);
+        assert_eq!(scope_after_probe("D".into(), 500), Some("D".into()), "real errors aren't treated as 'not a member'");
     }
 }

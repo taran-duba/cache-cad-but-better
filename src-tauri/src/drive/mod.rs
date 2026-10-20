@@ -69,7 +69,10 @@ pub struct LockInfo {
 }
 
 /// What the vault root is: any folder, in a shared drive, My Drive, or shared
-/// with you. `drive_id` is set when it's inside a shared drive.
+/// with you. `drive_id` is set only when the folder is inside a shared drive
+/// that the signed-in user is a **member** of. For a folder someone shared
+/// with you from a drive you're not in, it's `None`: listing then goes through
+/// the user's own view of Drive instead of the drive's.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FolderInfo {
     /// The real folder id (an alias like "root" is resolved).

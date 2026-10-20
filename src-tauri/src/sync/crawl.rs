@@ -13,6 +13,14 @@ use crate::index::{Index, Manifest};
 
 pub const MANIFEST_PROP: &str = "cadsyncManifest";
 const PAGE_TOKEN: &str = "page_token";
+/// Which feed `PAGE_TOKEN` belongs to ("drive:<id>" or "user"). A change token
+/// from one feed is meaningless in the other, e.g. after the user is added to
+/// or removed from the shared drive.
+const SCOPE_KEY: &str = "page_token_scope";
+
+fn scope_label(scope: Option<&str>) -> String {
+    scope.map_or("user".to_string(), |d| format!("drive:{d}"))
+}
 /// Folders per listing request (each adds a `'id' in parents` term to the query).
 const FOLDERS_PER_QUERY: usize = 30;
 
@@ -66,6 +74,7 @@ pub async fn full_crawl<D: DriveApi>(
     index.clear_remote()?;
     index.apply_remote(&all, &[])?;
     let manifests = ingest_manifests(drive, index, &all, scratch).await?;
+    index.set_meta(SCOPE_KEY, &scope_label(scope))?;
     index.set_meta(PAGE_TOKEN, &token)?;
     Ok(CrawlStats { upserted: all.len(), removed: 0, manifests })
 }
@@ -78,7 +87,9 @@ pub async fn poll_changes<D: DriveApi>(
     root_id: &str,
     scratch: &Path,
 ) -> Result<CrawlStats> {
-    let Some(mut token) = index.meta(PAGE_TOKEN)? else {
+    let same_feed = index.meta(SCOPE_KEY)?.as_deref() == Some(scope_label(scope).as_str());
+    let token = index.meta(PAGE_TOKEN)?.filter(|_| same_feed);
+    let Some(mut token) = token else {
         return full_crawl(drive, index, scope, root_id, scratch).await;
     };
     let mut stats = CrawlStats::default();
@@ -274,6 +285,29 @@ mod tests {
         assert_eq!(s.upserted, 1);
         assert!(ix.file(&new_in).unwrap().is_some());
         assert!(ix.file(&logo).unwrap().is_none() && ix.file(&new_top).unwrap().is_none());
+    }
+
+    /// Being added to (or removed from) the shared drive changes which change
+    /// feed applies; the old position must not be reused.
+    #[tokio::test]
+    async fn rebuilds_when_the_feed_scope_changes() {
+        let drive = FakeDrive::new("a@team.org");
+        let root = drive.drive_id.clone();
+        drive.seed_file(&root, "A.SLDPRT", b"a");
+        let ix = Index::in_memory().unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+
+        full_crawl(&drive, &ix, None, &root, scratch.path()).await.unwrap();
+        // Same scope: incremental, nothing to do.
+        let s = poll_changes(&drive, &ix, None, &root, scratch.path()).await.unwrap();
+        assert_eq!(s.upserted, 0);
+
+        // The user joins the drive: scope changes, so the whole folder is re-read.
+        let s = poll_changes(&drive, &ix, Some("shared-drive"), &root, scratch.path()).await.unwrap();
+        assert_eq!(s.upserted, 1, "full crawl happened");
+        // ...and now incremental again under the new scope.
+        let s = poll_changes(&drive, &ix, Some("shared-drive"), &root, scratch.path()).await.unwrap();
+        assert_eq!(s.upserted, 0);
     }
 
     #[tokio::test]

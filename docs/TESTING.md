@@ -279,6 +279,18 @@ Then sync.
   appear on both PCs within about 15 s. Dragging one out makes it disappear.
 - [ ] A link to a folder pasted into the picker opens it too.
 
+### 6g3. A folder shared with you from a drive you're not in
+
+1. With a third Google account (Casey) that is **not** a member of the shared drive, share just
+   the test folder with Casey as **Editor** (Drive website › Share).
+2. On a PC, sign in as Casey and pick the folder from **Shared with me**.
+
+**Expected:**
+- [ ] The folder opens and its files sync. No "not found" or "forbidden" error.
+- [ ] Check out and check in work for Casey.
+- [ ] Afterwards, add Casey to the shared drive as a member and wait about 30 s. Sync keeps
+  working with no restart.
+
 ### 6h. Only one copy runs
 
 1. With cadsync open, start it again from the Start menu.

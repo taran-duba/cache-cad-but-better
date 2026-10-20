@@ -203,6 +203,25 @@ impl AppState {
     pub async fn sync_once(&self) -> Result<crate::sync::pull::PullReport> {
         let _guard = self.sync_lock.lock().await;
         let vault = self.vault().await?;
+        match Self::sync_vault(&vault).await {
+            // Drive says "not found/forbidden" for a drive-scoped listing: the user
+            // may have been removed from the shared drive (or added to it). Work
+            // out the right scope again, and retry once if it changed.
+            Err(Error::Drive { status: 403 | 404, .. }) if vault.scope.is_some() => {
+                let old = vault.scope.clone();
+                self.open_folder(&vault.root_id).await?;
+                let vault = self.vault().await?;
+                if vault.scope == old {
+                    return Err(Error::Drive { status: 404, message: "the CAD folder can no longer be read".into() });
+                }
+                tracing::info!(scope = ?vault.scope, "shared drive access changed; retrying");
+                Self::sync_vault(&vault).await
+            }
+            r => r,
+        }
+    }
+
+    async fn sync_vault(vault: &AppVault) -> Result<crate::sync::pull::PullReport> {
         if let Err(e) = vault.resume_pushes().await {
             tracing::warn!(%e, "could not resume an interrupted check-in yet");
         }
