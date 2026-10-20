@@ -14,8 +14,8 @@ use crate::error::Result;
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub oauth: Option<OAuthClient>,
-    /// Shared drive id (from its URL: drive.google.com/drive/folders/<id>).
-    pub drive_id: Option<String>,
+    /// The vault folder's Drive id: a shared drive's root, or any folder.
+    pub folder_id: Option<String>,
     /// Local vault root. Must be the same on every machine.
     pub root: Option<PathBuf>,
     /// Path to SwRefs.exe; defaults to the bundled sidecar.
@@ -23,6 +23,24 @@ pub struct AppConfig {
     /// Local override for the Document Manager key. Normally the key comes
     /// from the team settings on the shared drive (see app/team.rs).
     pub swdm_key: Option<String>,
+}
+
+/// Drive ids are letters, digits, `-` and `_`.
+pub fn is_valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() < 200 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Accepts a folder link (`.../folders/<id>`, `...?id=<id>`) or a bare id.
+pub fn folder_id_from_input(input: &str) -> Option<String> {
+    let input = input.trim();
+    let id = if let Some(i) = input.find("/folders/") {
+        input[i + "/folders/".len()..].split(['?', '/', '#', '&']).next().unwrap_or("")
+    } else if let Some(i) = input.find("id=") {
+        input[i + 3..].split(['&', '#']).next().unwrap_or("")
+    } else {
+        input
+    };
+    is_valid_id(id).then(|| id.to_string())
 }
 
 pub fn default_root(drive_name: &str) -> PathBuf {
@@ -54,9 +72,9 @@ impl AppConfig {
 
     /// Validate values coming from the settings form.
     pub fn validate(&self) -> std::result::Result<(), String> {
-        if let Some(id) = &self.drive_id {
-            if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-                return Err("Shared drive id should look like 0AbCdEf123… (copy it from the drive's URL)".into());
+        if let Some(id) = &self.folder_id {
+            if !is_valid_id(id) {
+                return Err("The folder id looks wrong".into());
             }
         }
         if let Some(root) = &self.root {
@@ -81,11 +99,11 @@ mod tests {
     fn validates_settings() {
         let mut c = AppConfig::default();
         assert!(c.validate().is_ok());
-        c.drive_id = Some("0AbC-d_9".into());
+        c.folder_id = Some("0AbC-d_9".into());
         assert!(c.validate().is_ok());
-        c.drive_id = Some("https://drive.google.com/x".into());
+        c.folder_id = Some("https://drive.google.com/x".into());
         assert!(c.validate().is_err());
-        c.drive_id = None;
+        c.folder_id = None;
         c.root = Some("relative/path".into());
         assert!(c.validate().is_err());
         c.root = None;
@@ -93,13 +111,25 @@ mod tests {
     }
 
     #[test]
+    fn reads_folder_links() {
+        let id = Some("1AbC-dEf_9".to_string());
+        assert_eq!(folder_id_from_input("1AbC-dEf_9"), id);
+        assert_eq!(folder_id_from_input("https://drive.google.com/drive/folders/1AbC-dEf_9?usp=sharing"), id);
+        assert_eq!(folder_id_from_input("https://drive.google.com/drive/u/1/folders/1AbC-dEf_9"), id);
+        assert_eq!(folder_id_from_input("https://drive.google.com/open?id=1AbC-dEf_9&usp=x"), id);
+        assert_eq!(folder_id_from_input("  1AbC-dEf_9 \n"), id);
+        assert_eq!(folder_id_from_input("https://drive.google.com/file/d/xyz/view"), None);
+        assert_eq!(folder_id_from_input(""), None);
+    }
+
+    #[test]
     fn round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("config.json");
-        let c = AppConfig { drive_id: Some("0Abc".into()), ..Default::default() };
+        let c = AppConfig { folder_id: Some("0Abc".into()), ..Default::default() };
         c.save(&p).unwrap();
         let back = AppConfig::load(&p);
-        assert_eq!(back.drive_id.as_deref(), Some("0Abc"));
-        assert!(AppConfig::load(&dir.path().join("missing.json")).drive_id.is_none());
+        assert_eq!(back.folder_id.as_deref(), Some("0Abc"));
+        assert!(AppConfig::load(&dir.path().join("missing.json")).folder_id.is_none());
     }
 }

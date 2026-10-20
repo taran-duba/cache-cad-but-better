@@ -4,7 +4,9 @@ For students, using cadsync is:
 
 1. Install cadsync.
 2. Click **Sign in with Google**, and allow it to access Google Drive.
-3. Pick the team's shared drive. If you're only in one, it's picked for you.
+3. Pick your team's CAD folder: browse to it and click **Use this folder**, or paste a link to it.
+   It can be a whole shared drive, a folder inside one, a folder in My Drive, or one shared with
+   you. Only that folder syncs.
 4. In **Vault**, tick **Get** on the folders you work on.
 
 Two people do a one-time step first.
@@ -34,7 +36,10 @@ For a desktop app the "secret" isn't really secret; Google's sign-in protects it
 
 ## The CAD lead (once per team)
 
-- **Shared drive:** add every CAD member to the team's shared drive as **Content manager** or
+- **The CAD folder:** it can be anywhere in Drive, e.g. a `CacheCAD` folder inside a bigger shared
+  drive. Give every CAD member edit access to that folder: **Content manager** or higher on a
+  shared drive, or **Editor** on a folder. cadsync only ever reads and writes inside it. It's
+  also fine to use a whole shared drive. Add every CAD member as **Content manager** or
   higher. cadsync creates a hidden `.cadsync/` folder there for check-in records and team
   settings. Don't delete it.
 - **SolidWorks key:** request a Document Manager key from the SolidWorks Customer Portal (API
@@ -46,10 +51,10 @@ For a desktop app the "secret" isn't really secret; Google's sign-in protects it
 
 ## Good to know
 
-- **Vault folder:** files go to `C:\CAD\<drive name>` on every computer. Keep it that way:
+- **Vault folder:** files go to `C:\CAD\<folder name>` on every computer. Keep it that way:
   SolidWorks remembers full paths, and identical paths are what keep assemblies opening for
   everyone. You can change it under Settings › Advanced, but change it on every PC.
-- **Don't also run Google Drive for desktop** on the same shared drive into that folder. Two
+- **Don't also run Google Drive for desktop** on the same Drive folder into that folder. Two
   sync tools writing the same files is how files get corrupted.
 
 ## How to work

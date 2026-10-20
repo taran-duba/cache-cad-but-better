@@ -54,7 +54,8 @@ pub async fn build(dir: &Path) -> Result<Vault<Backend>> {
     Ok(Vault {
         drive: Backend::Fake(drive),
         index,
-        drive_id: root,
+        root_id: root,
+        scope: None,
         root: root_dir,
         data_dir: dir.to_path_buf(),
         me: "you@demo.team".into(),

@@ -33,7 +33,7 @@ pub struct AppState {
     pub auth: RwLock<Option<Arc<Auth>>>,
     pub account: RwLock<Option<String>>,
     pub vault: RwLock<Option<Arc<AppVault>>>,
-    pub drive_name: RwLock<Option<String>>,
+    pub folder_name: RwLock<Option<String>>,
     pub team: team::TeamCache,
     pub config: RwLock<AppConfig>,
     pub config_path: PathBuf,
@@ -71,7 +71,7 @@ impl AppState {
             auth: RwLock::new(None),
             account: RwLock::new(None),
             vault: RwLock::new(None),
-            drive_name: RwLock::new(None),
+            folder_name: RwLock::new(None),
             team: Default::default(),
             config: RwLock::new(AppConfig::load(&config_path)),
             config_path,
@@ -106,34 +106,41 @@ impl AppState {
         self.sign_in_expired.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.auth.write().await = Some(auth);
         *self.account.write().await = Some(email);
-        if let Some(drive_id) = self.config.read().await.drive_id.clone() {
-            if let Err(e) = self.open_drive(&drive_id).await {
+        if let Some(folder_id) = self.config.read().await.folder_id.clone() {
+            if let Err(e) = self.open_folder(&folder_id).await {
                 // E.g. a different account without access: let them pick again.
-                tracing::warn!(%e, "saved shared drive could not be opened");
+                tracing::warn!(%e, "saved folder could not be opened");
             }
         }
         Ok(())
     }
 
-    /// Open a shared drive as the vault, and remember it for next time.
-    pub async fn open_drive(&self, drive_id: &str) -> Result<()> {
+    /// Open a Drive folder (a shared drive's root, or any folder inside one,
+    /// in My Drive, or shared with you) as the vault, and remember it.
+    pub async fn open_folder(&self, folder_id: &str) -> Result<()> {
         let auth = self.auth.read().await.clone().ok_or_else(|| Error::Auth("sign in with Google first".into()))?;
         let me = self.account.read().await.clone().unwrap_or_default();
         let drive = Backend::Http(HttpDrive::new(auth));
-        let name = drive.get_file(drive_id).await?.name;
+        let info = drive.folder_info(folder_id).await?;
+        if !info.is_folder {
+            return Err(Error::Config("that link isn't a folder".into()));
+        }
+        // From here on use the real id ("root" and other aliases resolve to it).
+        let (folder_id, name) = (info.id, info.name);
 
         let mut cfg = self.config.read().await.clone();
-        let root = match (&cfg.drive_id, &cfg.root) {
-            (Some(saved), Some(root)) if saved == drive_id => root.clone(),
+        let root = match (&cfg.folder_id, &cfg.root) {
+            (Some(saved), Some(root)) if *saved == folder_id => root.clone(),
             _ => config::default_root(&name),
         };
-        let vault_data = self.data_dir.join(drive_id);
+        let vault_data = self.data_dir.join(&folder_id);
         std::fs::create_dir_all(&vault_data)?;
         std::fs::create_dir_all(&root)?;
         let vault = Vault {
             drive,
             index: Index::open(&vault_data.join("index.sqlite"))?,
-            drive_id: drive_id.to_string(),
+            root_id: folder_id.clone(),
+            scope: info.drive_id,
             root: root.clone(),
             data_dir: vault_data,
             me,
@@ -141,12 +148,12 @@ impl AppState {
             lock_verify_delay: Duration::from_secs(2),
         };
 
-        cfg.drive_id = Some(drive_id.to_string());
+        cfg.folder_id = Some(folder_id);
         cfg.root = Some(root);
         cfg.save(&self.config_path)?;
         *self.config.write().await = cfg;
         *self.vault.write().await = Some(Arc::new(vault));
-        *self.drive_name.write().await = Some(name);
+        *self.folder_name.write().await = Some(name);
         self.team.clear().await;
         self.demo.store(false, std::sync::atomic::Ordering::Relaxed);
         Ok(())
@@ -175,7 +182,7 @@ impl AppState {
         *self.auth.write().await = None;
         *self.account.write().await = None;
         *self.vault.write().await = None;
-        *self.drive_name.write().await = None;
+        *self.folder_name.write().await = None;
         self.team.clear().await;
         self.demo.store(false, std::sync::atomic::Ordering::Relaxed);
         Ok(())
@@ -186,7 +193,7 @@ impl AppState {
         let vault = demo::build(&dir).await?;
         *self.account.write().await = Some(vault.me.clone());
         *self.vault.write().await = Some(Arc::new(vault));
-        *self.drive_name.write().await = Some("Demo Team Drive".into());
+        *self.folder_name.write().await = Some("Demo Team Drive".into());
         self.team.clear().await;
         self.demo.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(())
@@ -196,6 +203,25 @@ impl AppState {
     pub async fn sync_once(&self) -> Result<crate::sync::pull::PullReport> {
         let _guard = self.sync_lock.lock().await;
         let vault = self.vault().await?;
+        match Self::sync_vault(&vault).await {
+            // Drive says "not found/forbidden" for a drive-scoped listing: the user
+            // may have been removed from the shared drive (or added to it). Work
+            // out the right scope again, and retry once if it changed.
+            Err(Error::Drive { status: 403 | 404, .. }) if vault.scope.is_some() => {
+                let old = vault.scope.clone();
+                self.open_folder(&vault.root_id).await?;
+                let vault = self.vault().await?;
+                if vault.scope == old {
+                    return Err(Error::Drive { status: 404, message: "the CAD folder can no longer be read".into() });
+                }
+                tracing::info!(scope = ?vault.scope, "shared drive access changed; retrying");
+                Self::sync_vault(&vault).await
+            }
+            r => r,
+        }
+    }
+
+    async fn sync_vault(vault: &AppVault) -> Result<crate::sync::pull::PullReport> {
         if let Err(e) = vault.resume_pushes().await {
             tracing::warn!(%e, "could not resume an interrupted check-in yet");
         }

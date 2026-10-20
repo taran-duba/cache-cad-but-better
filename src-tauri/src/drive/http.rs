@@ -298,6 +298,84 @@ impl HttpDrive {
     }
 }
 
+/// Keep the shared drive as the listing scope only if the user can see the
+/// drive. Asking Drive about a drive you're not a member of gives 404 (or 403);
+/// any other status is a real problem, so the drive scope stays and the error
+/// shows up when listing.
+fn scope_after_probe(drive_id: String, status: u16) -> Option<String> {
+    if matches!(status, 403 | 404) {
+        None
+    } else {
+        Some(drive_id)
+    }
+}
+
+/// Escape a value placed inside single quotes in a Drive `q` expression.
+fn escape_q(v: &str) -> String {
+    v.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+/// A folder in the picker.
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct BrowseFolder {
+    pub id: String,
+    pub name: String,
+}
+
+impl HttpDrive {
+    async fn folder_query(&self, q: &str, extra: &[(&str, &str)]) -> Result<Vec<BrowseFolder>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Page {
+            #[serde(default)]
+            files: Vec<BrowseFolder>,
+            next_page_token: Option<String>,
+        }
+        let mut out = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let page: Page = self
+                .json(|c| {
+                    let mut params = vec![
+                        ("supportsAllDrives", "true"),
+                        ("includeItemsFromAllDrives", "true"),
+                        ("pageSize", "200"),
+                        ("q", q),
+                        ("orderBy", "name_natural"),
+                        ("fields", "nextPageToken,files(id,name)"),
+                    ];
+                    params.extend_from_slice(extra);
+                    if let Some(t) = &token {
+                        params.push(("pageToken", t.as_str()));
+                    }
+                    c.get(format!("{API}/files")).query(&params)
+                })
+                .await?;
+            out.extend(page.files);
+            match page.next_page_token {
+                Some(t) => token = Some(t),
+                None => break,
+            }
+        }
+        Ok(out)
+    }
+
+    /// Folders directly inside `parent` (any folder id, `root` for My Drive).
+    pub async fn child_folders(&self, parent: &str) -> Result<Vec<BrowseFolder>> {
+        let q = format!(
+            "'{}' in parents and mimeType = '{FOLDER_MIME}' and trashed = false",
+            escape_q(parent)
+        );
+        self.folder_query(&q, &[("corpora", "allDrives")]).await
+    }
+
+    /// Folders other people shared with you.
+    pub async fn shared_with_me_folders(&self) -> Result<Vec<BrowseFolder>> {
+        let q = format!("sharedWithMe = true and mimeType = '{FOLDER_MIME}' and trashed = false");
+        self.folder_query(&q, &[("corpora", "user")]).await
+    }
+}
+
 /// From a 308 response's `Range: bytes=0-N` header, the next byte to send.
 fn next_offset(r: &Response) -> Option<u64> {
     let range = r.headers().get("range")?.to_str().ok()?;
@@ -326,33 +404,75 @@ impl DriveApi for HttpDrive {
         Ok(v["user"]["emailAddress"].as_str().unwrap_or_default().to_string())
     }
 
-    async fn list_drive_files(&self, drive_id: &str, page_token: Option<&str>) -> Result<FilePage> {
+    async fn folder_info(&self, id: &str) -> Result<FolderInfo> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct F {
+            id: String,
+            name: String,
+            mime_type: String,
+            drive_id: Option<String>,
+        }
+        let f: F = self
+            .json(|c| {
+                c.get(format!("{API}/files/{id}"))
+                    .query(&[("supportsAllDrives", "true"), ("fields", "id,name,mimeType,driveId")])
+            })
+            .await?;
+        // A folder can be in a shared drive without you being a member (someone
+        // shared just the folder). Listing "as the drive" is refused then, so
+        // only scope to the drive if we can see it.
+        let drive_id = match f.drive_id {
+            Some(d) => match self.send(|c| c.get(format!("{API}/drives/{d}")).query(&[("fields", "id")])).await {
+                Ok(_) => Some(d),
+                Err(Error::Drive { status, .. }) => scope_after_probe(d, status),
+                Err(e) => return Err(e), // couldn't tell (network); don't guess
+            },
+            None => None,
+        };
+        Ok(FolderInfo { is_folder: f.mime_type == FOLDER_MIME, id: f.id, name: f.name, drive_id })
+    }
+
+    async fn list_children(&self, scope: Option<&str>, parents: &[String], page_token: Option<&str>) -> Result<FilePage> {
+        if parents.is_empty() {
+            return Ok(FilePage { files: vec![], next_page_token: None });
+        }
         let fields = format!("nextPageToken,files({FILE_FIELDS})");
+        let any_parent = parents.iter().map(|p| format!("'{}' in parents", escape_q(p))).collect::<Vec<_>>().join(" or ");
+        let q = format!("trashed = false and ({any_parent})");
         let list: ApiFileList = self
             .json(|c| {
-                let mut q = vec![
-                    ("corpora", "drive"),
-                    ("driveId", drive_id),
+                let mut params = vec![
                     ("includeItemsFromAllDrives", "true"),
                     ("supportsAllDrives", "true"),
                     ("pageSize", "1000"),
-                    ("q", "trashed = false"),
+                    ("q", q.as_str()),
                     ("fields", fields.as_str()),
                 ];
-                if let Some(t) = page_token {
-                    q.push(("pageToken", t));
+                match scope {
+                    Some(d) => {
+                        params.push(("corpora", "drive"));
+                        params.push(("driveId", d));
+                    }
+                    None => params.push(("corpora", "allDrives")),
                 }
-                c.get(format!("{API}/files")).query(&q)
+                if let Some(t) = page_token {
+                    params.push(("pageToken", t));
+                }
+                c.get(format!("{API}/files")).query(&params)
             })
             .await?;
         Ok(FilePage { files: list.files.into_iter().map(Into::into).collect(), next_page_token: list.next_page_token })
     }
 
-    async fn start_page_token(&self, drive_id: &str) -> Result<String> {
+    async fn start_page_token(&self, scope: Option<&str>) -> Result<String> {
         let v: Value = self
             .json(|c| {
-                c.get(format!("{API}/changes/startPageToken"))
-                    .query(&[("driveId", drive_id), ("supportsAllDrives", "true")])
+                let mut q = vec![("supportsAllDrives", "true")];
+                if let Some(d) = scope {
+                    q.push(("driveId", d));
+                }
+                c.get(format!("{API}/changes/startPageToken")).query(&q)
             })
             .await?;
         v["startPageToken"].as_str().map(String::from).ok_or_else(|| Error::Drive {
@@ -361,18 +481,21 @@ impl DriveApi for HttpDrive {
         })
     }
 
-    async fn list_changes(&self, drive_id: &str, page_token: &str) -> Result<ChangePage> {
+    async fn list_changes(&self, scope: Option<&str>, page_token: &str) -> Result<ChangePage> {
         let fields = format!("nextPageToken,newStartPageToken,changes(fileId,removed,file({FILE_FIELDS}))");
         let list: ApiChangeList = self
             .json(|c| {
-                c.get(format!("{API}/changes")).query(&[
-                    ("driveId", drive_id),
+                let mut q = vec![
                     ("pageToken", page_token),
                     ("includeItemsFromAllDrives", "true"),
                     ("supportsAllDrives", "true"),
                     ("pageSize", "1000"),
                     ("fields", fields.as_str()),
-                ])
+                ];
+                if let Some(d) = scope {
+                    q.push(("driveId", d));
+                }
+                c.get(format!("{API}/changes")).query(&q)
             })
             .await?;
         Ok(ChangePage {
@@ -478,5 +601,17 @@ impl DriveApi for HttpDrive {
         })
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scopes_to_the_drive_only_for_members() {
+        assert_eq!(scope_after_probe("D".into(), 404), None, "folder shared from a drive you're not in");
+        assert_eq!(scope_after_probe("D".into(), 403), None);
+        assert_eq!(scope_after_probe("D".into(), 500), Some("D".into()), "real errors aren't treated as 'not a member'");
     }
 }

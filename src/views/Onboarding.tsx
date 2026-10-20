@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { api, errorText, SharedDrive, Status } from "../api";
+import { useEffect, useState } from "react";
+import { api, errorText, Status } from "../api";
 import type { ToastApi } from "../Toasts";
 
 /** Shown until a shared drive is open: sign in with Google, then pick the drive. */
@@ -22,7 +22,7 @@ export function Onboarding({
           cadsync
         </div>
         {status.account ? (
-          <DrivePicker account={status.account} onChanged={onChanged} toasts={toasts} />
+          <FolderPicker account={status.account} onChanged={onChanged} toasts={toasts} />
         ) : (
           <Welcome status={status} onChanged={onChanged} toasts={toasts} />
         )}
@@ -56,7 +56,7 @@ function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () 
       )}
       <h1>Your team's CAD, in sync.</h1>
       <p className="muted">
-        Sign in with the Google account you use for your team's shared drive. You'll pick the drive next.
+        Sign in with the Google account you use for your team's CAD files. You'll pick the folder next.
       </p>
       {status.signInAvailable ? (
         <button className="btn btn-primary btn-big" onClick={() => run(api.signIn)} disabled={busy}>
@@ -77,64 +77,120 @@ function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () 
   );
 }
 
-function DrivePicker({ account, onChanged, toasts }: { account: string; onChanged: () => void; toasts: ToastApi }) {
-  const [drives, setDrives] = useState<SharedDrive[] | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const autoPicked = useRef(false);
+interface Crumb {
+  id: string;
+  name: string;
+  /** "Shared with me" is a list, not a folder you can pick. */
+  pickable: boolean;
+}
 
-  const choose = async (id: string) => {
-    setBusy(id);
+function FolderPicker({ account, onChanged, toasts }: { account: string; onChanged: () => void; toasts: ToastApi }) {
+  const [path, setPath] = useState<Crumb[]>([]); // empty = the starting list
+  const [items, setItems] = useState<{ id: string; name: string; pickable: boolean; hint?: string }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState("");
+  const here = path[path.length - 1];
+
+  useEffect(() => {
+    let cancelled = false;
+    setItems(null);
+    const load = here
+      ? api.browseFolders(here.id).then((fs) => fs.map((f) => ({ id: f.id, name: f.name, pickable: true })))
+      : api.browseLocations().then((ls) =>
+          ls.map((l) => ({
+            id: l.id,
+            name: l.name,
+            pickable: l.kind !== "shared_with_me",
+            hint: l.kind === "shared_drive" ? "Shared drive" : undefined,
+          })),
+        );
+    load
+      .then((r) => !cancelled && setItems(r))
+      .catch((e) => {
+        if (cancelled) return;
+        toasts.error(errorText(e));
+        setItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [here?.id]);
+
+  const choose = async (input: string) => {
+    setBusy(true);
     try {
-      await api.chooseDrive(id);
+      await api.chooseFolder(input);
       onChanged();
     } catch (e) {
       toasts.error(errorText(e));
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  useEffect(() => {
-    api
-      .listSharedDrives()
-      .then((d) => {
-        setDrives(d);
-        if (d.length === 1 && !autoPicked.current) {
-          autoPicked.current = true; // only one drive: no need to ask
-          choose(d[0].id);
-        }
-      })
-      .catch((e) => {
-        toasts.error(errorText(e));
-        setDrives([]);
-      });
-  }, []);
-
   return (
     <>
-      <h1>Pick your team's shared drive</h1>
+      <h1>Choose your team's CAD folder</h1>
       <p className="muted">
         Signed in as {account}.{" "}
         <button className="link" onClick={() => api.signOut().then(onChanged)}>
           Use a different account
         </button>
       </p>
-      {drives === null ? (
-        <p className="muted">Looking for shared drives…</p>
-      ) : drives.length === 0 ? (
-        <p className="notice notice-warn">
-          This account isn't a member of any shared drive. Ask your CAD lead to add you to the team's shared drive,
-          then try again.
-        </p>
+      <p className="small muted">
+        Pick a whole shared drive, or just one folder inside it (or in My Drive, or shared with you). Only that
+        folder syncs.
+      </p>
+
+      <div className="inline-form">
+        <input
+          value={link}
+          placeholder="Or paste a link to the folder"
+          onChange={(e) => setLink(e.target.value)}
+          aria-label="Folder link"
+        />
+        <button className="btn" disabled={busy || link.trim() === ""} onClick={() => choose(link)}>
+          Use link
+        </button>
+      </div>
+
+      <div className="picker-crumbs">
+        <button className="crumb" onClick={() => setPath([])} disabled={path.length === 0}>
+          Locations
+        </button>
+        {path.map((c, i) => (
+          <span key={c.id}>
+            <span className="crumb-sep">/</span>
+            <button className="crumb" onClick={() => setPath(path.slice(0, i + 1))} disabled={i === path.length - 1}>
+              {c.name}
+            </button>
+          </span>
+        ))}
+      </div>
+
+      {here?.pickable && (
+        <button className="btn btn-primary picker-use" disabled={busy} onClick={() => choose(here.id)}>
+          {busy ? "Opening…" : `Use “${here.name}”`}
+        </button>
+      )}
+
+      {items === null ? (
+        <p className="muted">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="muted small">{here ? "No folders in here." : "Nothing found for this account."}</p>
       ) : (
         <ul className="drive-list">
-          {drives.map((d) => (
+          {items.map((d) => (
             <li key={d.id}>
-              <button className="drive" onClick={() => choose(d.id)} disabled={busy !== null}>
+              <button
+                className="drive"
+                disabled={busy}
+                onClick={() => setPath([...path, { id: d.id, name: d.name, pickable: d.pickable }])}
+              >
                 <span className="drive-icon" aria-hidden>
-                  ▤
+                  {here ? "▸" : "▤"}
                 </span>
                 {d.name}
-                {busy === d.id && <span className="muted small"> opening…</span>}
+                {d.hint && <span className="muted small"> · {d.hint}</span>}
               </button>
             </li>
           ))}

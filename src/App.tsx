@@ -99,7 +99,7 @@ export default function App() {
         </div>
         {signedIn && (
           <div className="topbar-info">
-            <span title={status.root ?? ""}>{status.driveName}</span>
+            <span title={status.root ?? ""}>{status.folderName}</span>
             <span className="muted">· {status.me}</span>
           </div>
         )}

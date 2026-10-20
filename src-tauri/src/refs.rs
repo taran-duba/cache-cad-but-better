@@ -175,7 +175,7 @@ impl<D: DriveApi> Vault<D> {
         new_files: &[PathBuf],
     ) -> Result<CheckInPlan> {
         let all = self.index.all_files()?;
-        let map = crate::index::PathMap::build(&self.drive_id, &all);
+        let map = crate::index::PathMap::build(&self.root_id, &all);
         let dups = map.duplicate_names(&all);
         let by_id: HashMap<&str, _> = all.iter().map(|f| (f.id.as_str(), f)).collect();
 
