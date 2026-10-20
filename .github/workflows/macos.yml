@@ -1,0 +1,110 @@
+# Builds cadsync on an Apple Silicon Mac, runs the Rust and SwRefs tests,
+# packages the .app and .dmg, and checks the built app really starts.
+# SolidWorks doesn't run on macOS, so reference checking isn't part of this build.
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    runs-on: macos-latest # Apple Silicon (arm64)
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: SwRefs tests
+        run: dotnet test sidecar/SwRefs.Tests
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # Ad-hoc signing ("-") so the app runs on Apple Silicon without a paid
+      # Apple Developer ID. First launch on another Mac still needs
+      # right-click > Open until the app is notarized.
+      - name: Build app and dmg
+        env:
+          # Optional: with these repo secrets set, the app has Google sign-in built in.
+          CADSYNC_GOOGLE_CLIENT_ID: ${{ secrets.CADSYNC_GOOGLE_CLIENT_ID }}
+          CADSYNC_GOOGLE_CLIENT_SECRET: ${{ secrets.CADSYNC_GOOGLE_CLIENT_SECRET }}
+        run: |
+          echo '{"bundle":{"macOS":{"signingIdentity":"-"}}}' > "$RUNNER_TEMP/ci.conf.json"
+          pnpm tauri build --config "$RUNNER_TEMP/ci.conf.json"
+
+      - name: Start the built app (smoke test)
+        env:
+          HAS_GOOGLE_SECRETS: ${{ secrets.CADSYNC_GOOGLE_CLIENT_ID != '' }}
+        run: |
+          app="src-tauri/target/release/bundle/macos/cadsync.app"
+          test -d "$app" || { echo "cadsync.app was not built"; exit 1; }
+          codesign --verify --deep --strict "$app"
+          result="$RUNNER_TEMP/smoke.json"
+          rm -f "$result"
+          export CADSYNC_SMOKE="$result"
+          export CADSYNC_SMOKE_HOLD_SECS=12
+          # Fail if the app was built without the Google client.
+          if [ "$HAS_GOOGLE_SECRETS" = "true" ]; then export CADSYNC_SMOKE_REQUIRE_SIGNIN=1; fi
+
+          "$app/Contents/MacOS/cadsync" &
+          pid=$!
+          sleep 8
+          screencapture -x "$RUNNER_TEMP/cadsync-macos.png" || echo "screenshot failed (non-fatal)"
+
+          for i in $(seq 1 180); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          if kill -0 $pid 2>/dev/null; then kill $pid; echo "cadsync didn't exit within 3 minutes"; exit 1; fi
+          wait $pid && code=0 || code=$?
+
+          test -f "$result" || { echo "no smoke result written (did another cadsync instance swallow the launch?)"; exit 1; }
+          cat "$result"
+          [ "$code" = "0" ] || { echo "smoke test failed (exit code $code)"; exit 1; }
+          echo "cadsync started and passed the smoke test on macOS."
+
+      - name: Upload smoke test result and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-macos
+          path: |
+            ${{ runner.temp }}/smoke.json
+            ${{ runner.temp }}/cadsync-macos.png
+          if-no-files-found: ignore
+
+      - name: Upload dmg
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cadsync-macos-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
