@@ -139,7 +139,9 @@ impl HttpDrive {
         let mut refreshed = false;
         loop {
             attempt += 1;
+            tracing::debug!(attempt, "drive: getting an access token");
             let token = self.auth.access_token().await?;
+            tracing::debug!(attempt, "drive: sending a request");
             let started = std::time::Instant::now();
             let err = match build(&self.http).bearer_auth(token).send().await {
                 Ok(resp) if resp.status().is_success() => {

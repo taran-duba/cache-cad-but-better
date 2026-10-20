@@ -171,6 +171,7 @@ impl Auth {
                 return Ok(t.token.clone());
             }
         }
+        tracing::debug!("auth: refreshing the access token");
         let resp: TokenResponse = check(
             self.http
                 .post(TOKEN_URL)
