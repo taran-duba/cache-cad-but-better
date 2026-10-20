@@ -206,7 +206,9 @@ impl AppState {
 
     /// One sync pass: finish interrupted check-ins, refresh, get files.
     pub async fn sync_once(&self) -> Result<crate::sync::pull::PullReport> {
+        tracing::debug!("sync: waiting for the sync lock");
         let _guard = self.sync_lock.lock().await;
+        tracing::debug!("sync: got the sync lock");
         let started = std::time::Instant::now();
         let r = match tokio::time::timeout(SYNC_PASS_LIMIT, self.sync_pass()).await {
             Ok(r) => r,
@@ -258,7 +260,9 @@ pub fn spawn_poller(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             let state = app.state::<AppState>();
+            tracing::debug!("poller: tick");
             if state.vault.read().await.is_some() {
+                tracing::debug!("poller: starting a sync pass");
                 match state.sync_once().await {
                     Ok(report) => {
                         let _ = app.emit("sync-report", &report);
