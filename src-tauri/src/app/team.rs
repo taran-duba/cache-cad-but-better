@@ -47,9 +47,11 @@ impl TeamCache {
         let Some(f) = v.index.children(&meta)?.into_iter().find(|f| f.name == FILE && !f.is_folder()) else {
             return Ok(TeamSettings::default());
         };
-        if let Some((md5, s)) = self.0.read().await.as_ref() {
-            if *md5 == f.md5 {
-                return Ok(s.clone());
+        // Copy out, so the lock isn't held while we download and then write below.
+        let cached = self.0.read().await.clone();
+        if let Some((md5, s)) = cached {
+            if md5 == f.md5 {
+                return Ok(s);
             }
         }
         std::fs::create_dir_all(v.scratch_dir())?;

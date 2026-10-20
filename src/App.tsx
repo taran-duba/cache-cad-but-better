@@ -27,6 +27,16 @@ export default function App() {
     }
   }, [toasts.error]);
 
+  // Until a drive is open, re-ask every couple of seconds. The "signed in" signal can
+  // arrive before this window is listening (a fast restore), and this way the
+  // window can never be left showing a stale sign-in screen.
+  const signedInNow = !!status?.signedIn;
+  useEffect(() => {
+    if (signedInNow) return;
+    const t = setInterval(refreshStatus, 2000);
+    return () => clearInterval(t);
+  }, [signedInNow, refreshStatus]);
+
   useEffect(() => {
     // Tell Rust the UI rendered and IPC works (the CI smoke test waits for this).
     refreshStatus().then(() => api.frontendReady().catch(() => {}));

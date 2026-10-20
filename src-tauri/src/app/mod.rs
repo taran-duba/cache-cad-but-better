@@ -42,6 +42,10 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub data_dir: PathBuf,
     pub demo: std::sync::atomic::AtomicBool,
+    /// True while the saved sign-in is being restored at startup (the system
+    /// keychain may be asking for permission), so the window says so instead of
+    /// showing a Sign in button that would race it.
+    pub restoring: std::sync::atomic::AtomicBool,
     /// Set when Google rejected the saved sign-in; the welcome screen says so.
     pub sign_in_expired: std::sync::atomic::AtomicBool,
     /// Serializes sync passes so the poller and a manual "Sync now" never overlap.
@@ -70,6 +74,10 @@ impl AppState {
             .app_config_dir()
             .unwrap_or_else(|_| data_dir.clone())
             .join("config.json");
+        Self::with_paths(data_dir, config_path)
+    }
+
+    pub fn with_paths(data_dir: PathBuf, config_path: PathBuf) -> Self {
         Self {
             auth: RwLock::new(None),
             account: RwLock::new(None),
@@ -80,6 +88,7 @@ impl AppState {
             config_path,
             data_dir,
             demo: Default::default(),
+            restoring: Default::default(),
             sign_in_expired: Default::default(),
             sync_lock: Default::default(),
         }
@@ -110,21 +119,34 @@ impl AppState {
         self.sign_in_expired.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.auth.write().await = Some(auth);
         *self.account.write().await = Some(email);
-        if let Some(folder_id) = self.config.read().await.folder_id.clone() {
-            if let Err(e) = self.open_folder(&folder_id).await {
-                // E.g. a different account without access: let them pick again.
+        let auth = self.auth.read().await.clone().ok_or_else(|| Error::Auth("sign in with Google first".into()))?;
+        self.open_saved_folder_on(Backend::Http(HttpDrive::new(auth))).await;
+        Ok(())
+    }
+
+    /// Open the folder chosen last time, if any, on `drive`. A folder that can't
+    /// be opened (say a different account without access) just leaves the user
+    /// at the picker.
+    pub(crate) async fn open_saved_folder_on(&self, drive: Backend) {
+        let saved = self.config.read().await.folder_id.clone();
+        // `saved` is a copy: no config lock may be held while the folder opens,
+        // because opening it writes the config.
+        if let Some(folder_id) = saved {
+            if let Err(e) = self.open_folder_on(drive, &folder_id).await {
                 tracing::warn!(%e, "saved folder could not be opened");
             }
         }
-        Ok(())
     }
 
     /// Open a Drive folder (a shared drive's root, or any folder inside one,
     /// in My Drive, or shared with you) as the vault, and remember it.
     pub async fn open_folder(&self, folder_id: &str) -> Result<()> {
         let auth = self.auth.read().await.clone().ok_or_else(|| Error::Auth("sign in with Google first".into()))?;
+        self.open_folder_on(Backend::Http(HttpDrive::new(auth)), folder_id).await
+    }
+
+    pub(crate) async fn open_folder_on(&self, drive: Backend, folder_id: &str) -> Result<()> {
         let me = self.account.read().await.clone().unwrap_or_default();
-        let drive = Backend::Http(HttpDrive::new(auth));
         let info = drive.folder_info(folder_id).await?;
         if !info.is_folder {
             return Err(Error::Config("that link isn't a folder".into()));
@@ -291,6 +313,7 @@ pub fn restore_session(app: tauri::AppHandle) {
             // The system keychain can block (it may show a permission prompt),
             // so ask it off the async workers.
             tracing::info!("restoring the saved Google sign-in");
+            state.restoring.store(true, std::sync::atomic::Ordering::Relaxed);
             let saved = tauri::async_runtime::spawn_blocking(move || Auth::from_saved(client)).await.ok().flatten();
             if saved.is_none() {
                 tracing::info!("no saved Google sign-in");
@@ -303,6 +326,38 @@ pub fn restore_session(app: tauri::AppHandle) {
                 }
             }
         }
+        state.restoring.store(false, std::sync::atomic::Ordering::Relaxed);
         let _ = app.emit("vault-changed", ());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drive::fake::FakeDrive;
+
+    /// Restarting with a saved folder must open it. Regression test: the
+    /// restore step once held a config read lock while opening the folder,
+    /// which needs the config write lock, so the app waited on itself forever:
+    /// no vault, no sync, and Sign in froze behind the stuck write.
+    #[tokio::test]
+    async fn restarting_with_a_saved_folder_opens_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::with_paths(dir.path().join("data"), dir.path().join("config.json"));
+        let drive = FakeDrive::new("alex@team.org");
+        state.config.write().await.folder_id = Some(drive.drive_id.clone());
+        *state.account.write().await = Some("alex@team.org".into());
+
+        let opened = tokio::time::timeout(
+            Duration::from_secs(5),
+            state.open_saved_folder_on(Backend::Fake(drive)),
+        )
+        .await;
+        assert!(opened.is_ok(), "opening the saved folder deadlocked");
+        assert!(state.vault.read().await.is_some(), "the vault should be open");
+
+        // And the config is still usable afterwards (Sign in reads it first).
+        let client = tokio::time::timeout(Duration::from_secs(5), state.oauth_client()).await;
+        assert!(client.is_ok(), "reading the config hung after opening the folder");
+    }
 }
