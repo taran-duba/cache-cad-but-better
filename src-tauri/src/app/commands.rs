@@ -34,6 +34,8 @@ pub struct Status {
     sign_in_expired: bool,
     /// The saved sign-in is being restored right now.
     restoring: bool,
+    /// A sync pass is running right now.
+    syncing: bool,
     demo: bool,
     me: Option<String>,
     root: Option<PathBuf>,
@@ -128,6 +130,7 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         signed_in: vault.is_some(),
         sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
         restoring: state.restoring.load(std::sync::atomic::Ordering::Relaxed),
+        syncing: state.syncing.load(std::sync::atomic::Ordering::Relaxed) > 0,
         demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),
@@ -315,7 +318,7 @@ pub async fn set_selection(state: State<'_, AppState>, file_id: String, get: Opt
 
 #[tauri::command]
 pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<PullReport> {
-    let r = state.sync_once().await;
+    let r = state.sync_tracked(&app).await;
     state.check_expired(&app, r).await
 }
 

@@ -676,3 +676,182 @@ legend {
   max-height: calc(100vh - 48px);
   overflow: auto;
 }
+
+/* ---- loading and transition cues ---- */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes slide-across {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  vertical-align: -2px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  opacity: 0.75;
+  animation: spin 0.7s linear infinite;
+}
+
+.btn-primary .spinner {
+  border-color: var(--accent-text);
+  border-right-color: transparent;
+}
+
+.btn .spinner {
+  margin-right: 8px;
+}
+
+.view-enter {
+  animation: fade-up 0.22s ease-out both;
+}
+
+.fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+
+.files tbody tr {
+  animation: fade-in 0.2s ease-out both;
+}
+
+.toast {
+  animation: toast-in 0.2s ease-out both;
+}
+
+/* thin indeterminate bar across the very top while syncing in the background */
+.progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.progress-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: slide-across 1.1s ease-in-out infinite;
+}
+
+.sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  animation: fade-in 0.2s ease-out both;
+}
+
+.starting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  animation: fade-in 0.3s ease-out 0.15s both;
+}
+
+.working {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.skeleton-row {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  animation: fade-in 0.3s ease-out both;
+}
+
+.skeleton-bar {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--dim-bg) 25%, var(--hover) 50%, var(--dim-bg) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 8px 0 14px;
+  border-radius: 8px;
+  background: var(--info-bg);
+  color: var(--text);
+  line-height: 1.4;
+  animation: fade-in 0.25s ease-out both;
+}
+
+.status-banner .small {
+  display: block;
+  color: var(--muted);
+}
+
+/* anyone who asks their OS to reduce motion gets static cues instead */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+  .spinner {
+    animation: none;
+    border-style: dotted;
+  }
+  .progress-bar::before {
+    width: 100%;
+    opacity: 0.5;
+  }
+  .skeleton-bar {
+    background: var(--dim-bg);
+  }
+}
