@@ -63,6 +63,7 @@ impl<D: DriveApi> Vault<D> {
     }
 
     pub async fn refresh(&self) -> Result<crawl::CrawlStats> {
+        tracing::debug!(scope = ?self.scope, "refresh: checking Drive for changes");
         crawl::poll_changes(&self.drive, &self.index, self.scope.as_deref(), &self.root_id, &self.scratch_dir()).await
     }
 }
