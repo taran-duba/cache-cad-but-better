@@ -32,6 +32,7 @@ export interface Status {
   account: string | null;
   signedIn: boolean;
   signInExpired: boolean;
+  restoring: boolean;
   demo: boolean;
   me: string | null;
   root: string | null;

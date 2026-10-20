@@ -32,6 +32,8 @@ pub struct Status {
     signed_in: bool,
     /// Google rejected the saved sign-in; show "sign in again".
     sign_in_expired: bool,
+    /// The saved sign-in is being restored right now.
+    restoring: bool,
     demo: bool,
     me: Option<String>,
     root: Option<PathBuf>,
@@ -125,6 +127,7 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         account: state.account.read().await.clone(),
         signed_in: vault.is_some(),
         sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
+        restoring: state.restoring.load(std::sync::atomic::Ordering::Relaxed),
         demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),

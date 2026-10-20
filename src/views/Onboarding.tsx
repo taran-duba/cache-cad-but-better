@@ -58,7 +58,12 @@ function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () 
       <p className="muted">
         Sign in with the Google account you use for your team's CAD files. You'll pick the folder next.
       </p>
-      {status.signInAvailable ? (
+      {status.restoring ? (
+        <p className="notice">
+          Signing you back in… If your Mac asks to allow cadsync to use the keychain, choose{" "}
+          <strong>Always Allow</strong>.
+        </p>
+      ) : status.signInAvailable ? (
         <button className="btn btn-primary btn-big" onClick={() => run(api.signIn)} disabled={busy}>
           {busy ? "Finish signing in in your browser…" : "Sign in with Google"}
         </button>
