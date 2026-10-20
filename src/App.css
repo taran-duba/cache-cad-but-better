@@ -659,3 +659,20 @@ legend {
 .lock-help-warn {
   margin-top: 8px;
 }
+
+.picker-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 14px 0 4px;
+}
+
+.picker-use {
+  margin: 8px 0 4px;
+  width: 100%;
+}
+
+.onboarding-card {
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}

@@ -115,6 +115,14 @@ impl FakeDrive {
         id
     }
 
+    /// Move a file or folder (like dragging it in the Drive website).
+    pub fn move_item(&self, id: &str, new_parent: &str) {
+        let mut s = self.state.lock().unwrap();
+        let mut f = s.files.get(id).cloned().expect("item exists");
+        f.parent = Some(new_parent.into());
+        Self::commit_change(&mut s, f);
+    }
+
     /// Simulate someone editing a file outside this app (e.g. Drive web upload).
     pub fn external_edit(&self, file_id: &str, bytes: &[u8]) {
         let mut s = self.state.lock().unwrap();
@@ -183,10 +191,21 @@ impl DriveApi for FakeDrive {
         Ok(self.user.clone())
     }
 
-    async fn list_drive_files(&self, _drive_id: &str, page_token: Option<&str>) -> Result<FilePage> {
+    async fn folder_info(&self, id: &str) -> Result<FolderInfo> {
+        let s = self.state.lock().unwrap();
+        let f = Self::get(&s, id)?;
+        Ok(FolderInfo { is_folder: f.is_folder(), id: f.id, name: f.name, drive_id: None })
+    }
+
+    async fn list_children(&self, _scope: Option<&str>, parents: &[String], page_token: Option<&str>) -> Result<FilePage> {
         // Page size 2 so tests exercise pagination.
         let s = self.state.lock().unwrap();
-        let all: Vec<_> = s.files.values().filter(|f| !f.trashed && f.parent.is_some()).cloned().collect();
+        let all: Vec<_> = s
+            .files
+            .values()
+            .filter(|f| !f.trashed && f.parent.as_ref().is_some_and(|p| parents.contains(p)))
+            .cloned()
+            .collect();
         let start: usize = page_token.map(|t| t.parse().unwrap_or(0)).unwrap_or(0);
         let end = (start + 2).min(all.len());
         Ok(FilePage {
@@ -195,11 +214,11 @@ impl DriveApi for FakeDrive {
         })
     }
 
-    async fn start_page_token(&self, _drive_id: &str) -> Result<String> {
+    async fn start_page_token(&self, _scope: Option<&str>) -> Result<String> {
         Ok(self.state.lock().unwrap().seq.to_string())
     }
 
-    async fn list_changes(&self, _drive_id: &str, page_token: &str) -> Result<ChangePage> {
+    async fn list_changes(&self, _scope: Option<&str>, page_token: &str) -> Result<ChangePage> {
         let s = self.state.lock().unwrap();
         let after: u64 = page_token.parse().unwrap_or(0);
         let mut seen = std::collections::HashSet::new();

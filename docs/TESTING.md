@@ -75,16 +75,16 @@ On **both** PCs:
    `src-tauri\target\release\bundle\nsis\`.
 2. Click **Sign in with Google**, sign in as Alex (PC A) or Blair (PC B), accept the
    "unverified app" warning, and allow Drive access.
-3. Pick the **test** shared drive from the list. If the account is only in one drive, it's
-   picked automatically.
+3. Pick the **test** folder: browse to it (or paste a link) and click **Use this folder**.
 4. **PC A only:** in **Settings › SolidWorks reference checking**, paste the Document Manager
    key and click **Save**.
 5. In **Vault**, tick **Get** on the top-level folder.
 
 **Expected:**
-- [ ] The browser opens Google sign-in. Afterwards the app lists your shared drives (or opens the
-  only one), then shows the drive name and your email in the top bar.
-- [ ] The vault folder is `C:\CAD\<drive name>` on both PCs (Settings › Advanced).
+- [ ] The browser opens Google sign-in. Afterwards the app shows your shared drives, My Drive and
+  Shared with me. Browsing into a folder shows its subfolders, and "Use" opens it. The top bar
+  then shows the folder name and your email.
+- [ ] The vault folder is `C:\CAD\<folder name>` on both PCs (Settings › Advanced).
 - [ ] After PC A saves the key, PC B's Settings shows "Saved for the team" without anyone
   typing it on PC B.
 - [ ] The sidebar does **not** show "Reference checking is off". If it does, the key or SwRefs
@@ -265,6 +265,20 @@ Then sync.
 - [ ] In step 3, cadsync warns "… is used by TestAssembly.SLDASM" before deleting. This only works
   if that assembly has been checked in from a PC with the SolidWorks key set.
 
+### 6g2. A folder inside a bigger drive
+
+1. In the test shared drive, make a folder **Test Drive** (or use the one you have) that sits
+   next to other folders and files. Pick **only that folder** in step 3 above on both PCs.
+2. Put a file next to it, outside the folder, and another inside.
+
+**Expected:**
+- [ ] Only files inside the picked folder appear in Vault and under `C:\CAD\Test Drive`.
+- [ ] After a check-in, a hidden `.cadsync` folder appears **inside** the picked folder in Drive,
+  not at the top of the drive.
+- [ ] Dragging a subfolder with files into the picked folder (in the Drive website) makes it
+  appear on both PCs within about 15 s. Dragging one out makes it disappear.
+- [ ] A link to a folder pasted into the picker opens it too.
+
 ### 6h. Only one copy runs
 
 1. With cadsync open, start it again from the Start menu.
@@ -285,7 +299,7 @@ Then sync.
 
 This part is read-only (only tick **Get** on folders), so it's safe to run on the real team drive.
 
-1. Point one PC at the real drive (Settings › Shared drive), sign in, and time how long until the
+1. Point one PC at the real folder (Settings › CAD folder › Change), sign in, and time how long until the
    Vault tab lists the top-level folders.
 2. Quit and restart the app. Time how long until the folder list appears.
 3. Have someone change a file on Drive, then click **Sync now**. Time how long until it finishes.

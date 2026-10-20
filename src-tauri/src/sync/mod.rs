@@ -19,7 +19,11 @@ use crate::index::{Index, PathMap};
 pub struct Vault<D> {
     pub drive: D,
     pub index: Index,
-    pub drive_id: String,
+    /// The vault folder: the root of everything cadsync syncs. Any folder in
+    /// Drive (a shared drive's root, or a folder deep inside one, or in My Drive).
+    pub root_id: String,
+    /// The shared drive the folder is in, if any (speeds up listing).
+    pub scope: Option<String>,
     /// Local vault root, e.g. `C:\CAD\Team Drive`. Must be the same path on
     /// every machine so SolidWorks' absolute references resolve.
     pub root: PathBuf,
@@ -34,7 +38,7 @@ pub struct Vault<D> {
 
 impl<D: DriveApi> Vault<D> {
     pub fn paths(&self) -> Result<PathMap> {
-        Ok(PathMap::build(&self.drive_id, &self.index.all_files()?))
+        Ok(PathMap::build(&self.root_id, &self.index.all_files()?))
     }
 
     pub fn abs(&self, rel: &Path) -> PathBuf {
@@ -59,7 +63,7 @@ impl<D: DriveApi> Vault<D> {
     }
 
     pub async fn refresh(&self) -> Result<crawl::CrawlStats> {
-        crawl::poll_changes(&self.drive, &self.index, &self.drive_id, &self.scratch_dir()).await
+        crawl::poll_changes(&self.drive, &self.index, self.scope.as_deref(), &self.root_id, &self.scratch_dir()).await
     }
 }
 
@@ -80,7 +84,8 @@ pub(crate) mod testutil {
         let vault = Vault {
             drive: drive.as_user(user),
             index: Index::in_memory().unwrap(),
-            drive_id: drive.drive_id.clone(),
+            root_id: drive.drive_id.clone(),
+            scope: None,
             root: root.path().to_path_buf(),
             data_dir: data.path().to_path_buf(),
             me: user.to_string(),

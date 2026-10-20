@@ -4,7 +4,7 @@ SolidWorks + Google Drive file sharing for FRC teams, built to fix what went wro
 
 | Problem | What cadsync does |
 | --- | --- |
-| Slow loading | A local SQLite index of the whole shared drive, updated incrementally from Drive's change feed. Browsing never waits on the network. |
+| Slow loading | A local SQLite index of your CAD folder (a whole shared drive, or just one folder inside it), updated incrementally from Drive's change feed. Browsing never waits on the network. |
 | Crashes | Drive names (`/`, emoji, `CON`, duplicates, trailing dots) are mapped to safe Windows names; sync runs in the background with a crash-safe journal. |
 | Overwrites and conflicts | Check-out locks (Drive content restriction plus lock properties), and read-only local files for anything you haven't checked out. |
 | Broken mates | Atomic check-ins: an assembly and its changed parts arrive together or not at all. References are read with the SolidWorks Document Manager, and check-ins are blocked for missing files, files outside the vault, and duplicate names. |
@@ -19,7 +19,7 @@ SolidWorks + Google Drive file sharing for FRC teams, built to fix what went wro
   - `app/`: Tauri commands, config, background poller
 - `src/`: React UI
 - `sidecar/`: SwRefs (C#), which reads SolidWorks references with the Document Manager API
-- `docs/SETUP.md`: one-time team setup (Google OAuth client, shared drive, license key)
+- `docs/SETUP.md`: one-time team setup (Google OAuth client, CAD folder, license key)
 - `docs/TESTING.md`: step-by-step Windows test plan with two PCs, and a results table to fill in
 
 ## Develop

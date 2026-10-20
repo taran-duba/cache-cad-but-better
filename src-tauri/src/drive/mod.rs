@@ -68,6 +68,17 @@ pub struct LockInfo {
     pub machine: String,
 }
 
+/// What the vault root is: any folder, in a shared drive, My Drive, or shared
+/// with you. `drive_id` is set when it's inside a shared drive.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FolderInfo {
+    /// The real folder id (an alias like "root" is resolved).
+    pub id: String,
+    pub name: String,
+    pub is_folder: bool,
+    pub drive_id: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct FilePage {
     pub files: Vec<RemoteFile>,
@@ -117,10 +128,14 @@ impl MetadataPatch {
 pub trait DriveApi: Send + Sync {
     /// Who is signed in (email address).
     async fn whoami(&self) -> Result<String>;
-    /// One page of every non-trashed item in the shared drive.
-    async fn list_drive_files(&self, drive_id: &str, page_token: Option<&str>) -> Result<FilePage>;
-    async fn start_page_token(&self, drive_id: &str) -> Result<String>;
-    async fn list_changes(&self, drive_id: &str, page_token: &str) -> Result<ChangePage>;
+    /// Resolve a folder id (or alias like "root") to its real id, name, and
+    /// shared drive, if any.
+    async fn folder_info(&self, id: &str) -> Result<FolderInfo>;
+    /// One page of the non-trashed items directly inside any of `parents`.
+    /// `scope` is the shared drive they're in, if known.
+    async fn list_children(&self, scope: Option<&str>, parents: &[String], page_token: Option<&str>) -> Result<FilePage>;
+    async fn start_page_token(&self, scope: Option<&str>) -> Result<String>;
+    async fn list_changes(&self, scope: Option<&str>, page_token: &str) -> Result<ChangePage>;
     async fn get_file(&self, file_id: &str) -> Result<RemoteFile>;
     /// Download the current content of a file.
     async fn download_file(&self, file_id: &str, dest: &Path) -> Result<()>;
@@ -161,14 +176,17 @@ impl DriveApi for Backend {
     async fn whoami(&self) -> Result<String> {
         delegate!(self, d => d.whoami().await)
     }
-    async fn list_drive_files(&self, drive_id: &str, page_token: Option<&str>) -> Result<FilePage> {
-        delegate!(self, d => d.list_drive_files(drive_id, page_token).await)
+    async fn folder_info(&self, id: &str) -> Result<FolderInfo> {
+        delegate!(self, d => d.folder_info(id).await)
     }
-    async fn start_page_token(&self, drive_id: &str) -> Result<String> {
-        delegate!(self, d => d.start_page_token(drive_id).await)
+    async fn list_children(&self, scope: Option<&str>, parents: &[String], page_token: Option<&str>) -> Result<FilePage> {
+        delegate!(self, d => d.list_children(scope, parents, page_token).await)
     }
-    async fn list_changes(&self, drive_id: &str, page_token: &str) -> Result<ChangePage> {
-        delegate!(self, d => d.list_changes(drive_id, page_token).await)
+    async fn start_page_token(&self, scope: Option<&str>) -> Result<String> {
+        delegate!(self, d => d.start_page_token(scope).await)
+    }
+    async fn list_changes(&self, scope: Option<&str>, page_token: &str) -> Result<ChangePage> {
+        delegate!(self, d => d.list_changes(scope, page_token).await)
     }
     async fn get_file(&self, file_id: &str) -> Result<RemoteFile> {
         delegate!(self, d => d.get_file(file_id).await)

@@ -35,8 +35,8 @@ export interface Status {
   demo: boolean;
   me: string | null;
   root: string | null;
-  driveId: string | null;
-  driveName: string | null;
+  folderId: string | null;
+  folderName: string | null;
   fileCount: number;
   pendingCheckIns: number;
   refsAvailable: boolean;
@@ -49,13 +49,19 @@ export interface OAuthClient {
 
 export interface AppConfig {
   oauth: OAuthClient | null;
-  driveId: string | null;
+  folderId: string | null;
   root: string | null;
   sidecarPath: string | null;
   swdmKey: string | null;
 }
 
-export interface SharedDrive {
+export interface Location {
+  id: string;
+  name: string;
+  kind: "shared_drive" | "my_drive" | "shared_with_me";
+}
+
+export interface BrowseFolder {
   id: string;
   name: string;
 }
@@ -115,8 +121,9 @@ export const api = {
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) => invoke<void>("save_config", { config }),
   signIn: () => invoke<void>("sign_in"),
-  listSharedDrives: () => invoke<SharedDrive[]>("list_shared_drives"),
-  chooseDrive: (driveId: string) => invoke<void>("choose_drive", { driveId }),
+  browseLocations: () => invoke<Location[]>("browse_locations"),
+  browseFolders: (parentId: string) => invoke<BrowseFolder[]>("browse_folders", { parentId }),
+  chooseFolder: (input: string) => invoke<void>("choose_folder", { input }),
   switchDrive: () => invoke<void>("switch_drive"),
   getTeamSettings: () => invoke<TeamSettings>("get_team_settings"),
   saveTeamSettings: (settings: TeamSettings) => invoke<void>("save_team_settings", { settings }),

@@ -25,7 +25,7 @@ export function SettingsView({
         setKeySaved(!!t.swdmKey);
       })
       .catch(() => {});
-  }, [status.driveId]);
+  }, [status.folderId]);
 
   const run = async (what: () => Promise<unknown>, done?: string) => {
     setBusy(true);
@@ -59,12 +59,12 @@ export function SettingsView({
 
       <div className="setting-row">
         <div>
-          <div className="setting-label">Shared drive</div>
-          <div>{status.driveName}</div>
+          <div className="setting-label">CAD folder</div>
+          <div>{status.folderName}</div>
         </div>
         {!status.demo && (
           <button className="btn" onClick={() => run(api.switchDrive)} disabled={busy}>
-            Switch
+            Change
           </button>
         )}
       </div>

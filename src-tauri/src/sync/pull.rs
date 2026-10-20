@@ -94,7 +94,7 @@ impl<D: DriveApi> Vault<D> {
 
     pub fn plan_pull(&self) -> Result<PullPlan> {
         let all = self.index.all_files()?;
-        let map = PathMap::build(&self.drive_id, &all);
+        let map = PathMap::build(&self.root_id, &all);
         let by_id: HashMap<&str, &RemoteFile> = all.iter().map(|f| (f.id.as_str(), f)).collect();
         let sel = self.index.selections()?;
         let locals: HashMap<String, LocalState> =

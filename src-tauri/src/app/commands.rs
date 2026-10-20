@@ -10,7 +10,7 @@ use super::config::AppConfig;
 use super::{AppState, AppVault};
 use super::team::TeamSettings;
 use crate::drive::auth::Auth;
-use crate::drive::http::SharedDrive;
+use crate::drive::http::BrowseFolder;
 use crate::drive::{props, LockInfo, RemoteFile};
 use crate::error::{Error, Result};
 use crate::index::{Manifest, PathMap};
@@ -35,8 +35,8 @@ pub struct Status {
     demo: bool,
     me: Option<String>,
     root: Option<PathBuf>,
-    drive_id: Option<String>,
-    drive_name: Option<String>,
+    folder_id: Option<String>,
+    folder_name: Option<String>,
     file_count: u64,
     pending_check_ins: usize,
     refs_available: bool,
@@ -128,8 +128,8 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),
-        drive_id: vault.as_ref().map(|v| v.drive_id.clone()),
-        drive_name: state.drive_name.read().await.clone(),
+        folder_id: vault.as_ref().map(|v| v.root_id.clone()),
+        folder_name: state.folder_name.read().await.clone(),
         file_count: match &vault {
             Some(v) => v.index.file_count()?,
             None => 0,
@@ -187,19 +187,51 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     Ok(())
 }
 
-/// The shared drives the signed-in account can use.
+/// Where the folder picker starts: your shared drives, My Drive, and folders
+/// shared with you.
+#[derive(Serialize)]
+pub struct Location {
+    id: String,
+    name: String,
+    /// shared_drive | my_drive | shared_with_me
+    kind: &'static str,
+}
+
+const SHARED_WITH_ME: &str = "__shared_with_me";
+
 #[tauri::command]
-pub async fn list_shared_drives(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<SharedDrive>> {
+pub async fn browse_locations(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Location>> {
     let r = state.http().await?.list_shared_drives().await;
+    let drives = state.check_expired(&app, r).await?;
+    let mut out: Vec<Location> = drives
+        .into_iter()
+        .map(|d| Location { id: d.id, name: d.name, kind: "shared_drive" })
+        .collect();
+    out.push(Location { id: "root".into(), name: "My Drive".into(), kind: "my_drive" });
+    out.push(Location { id: SHARED_WITH_ME.into(), name: "Shared with me".into(), kind: "shared_with_me" });
+    Ok(out)
+}
+
+/// The folders inside a location or folder shown in the picker.
+#[tauri::command]
+pub async fn browse_folders(app: AppHandle, state: State<'_, AppState>, parent_id: String) -> Result<Vec<BrowseFolder>> {
+    let drive = state.http().await?;
+    let r = if parent_id == SHARED_WITH_ME {
+        drive.shared_with_me_folders().await
+    } else if parent_id == "root" || super::config::is_valid_id(&parent_id) {
+        drive.child_folders(&parent_id).await
+    } else {
+        return Err(Error::Config("invalid folder".into()));
+    };
     state.check_expired(&app, r).await
 }
 
+/// Use this folder as the vault. `input` is a folder link or a folder id.
 #[tauri::command]
-pub async fn choose_drive(app: AppHandle, state: State<'_, AppState>, drive_id: String) -> Result<()> {
-    if drive_id.is_empty() || !drive_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(Error::Config("invalid shared drive".into()));
-    }
-    let r = state.open_drive(&drive_id).await;
+pub async fn choose_folder(app: AppHandle, state: State<'_, AppState>, input: String) -> Result<()> {
+    let folder_id = super::config::folder_id_from_input(&input)
+        .ok_or_else(|| Error::Config("that doesn't look like a Drive folder link".into()))?;
+    let r = state.open_folder(&folder_id).await;
     state.check_expired(&app, r).await?;
     let _ = app.emit("vault-changed", ());
     Ok(())
@@ -209,7 +241,7 @@ pub async fn choose_drive(app: AppHandle, state: State<'_, AppState>, drive_id: 
 #[tauri::command]
 pub async fn switch_drive(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     *state.vault.write().await = None;
-    *state.drive_name.write().await = None;
+    *state.folder_name.write().await = None;
     let _ = app.emit("vault-changed", ());
     Ok(())
 }
@@ -246,13 +278,13 @@ pub async fn set_vault_folder(app: AppHandle, state: State<'_, AppState>, root: 
     if !root.is_absolute() {
         return Err(Error::Config("use a full path like C:\\CAD\\Team Drive".into()));
     }
-    let drive_id = state.vault().await?.drive_id.clone();
+    let folder_id = state.vault().await?.root_id.clone();
     {
         let mut cfg = state.config.write().await;
         cfg.root = Some(root);
         cfg.save(&state.config_path)?;
     }
-    state.open_drive(&drive_id).await?;
+    state.open_folder(&folder_id).await?;
     let _ = app.emit("vault-changed", ());
     Ok(())
 }
@@ -261,10 +293,10 @@ pub async fn set_vault_folder(app: AppHandle, state: State<'_, AppState>, root: 
 pub async fn list_children(state: State<'_, AppState>, parent_id: Option<String>) -> Result<Vec<Entry>> {
     let v = state.vault().await?;
     let all = v.index.all_files()?;
-    let map = PathMap::build(&v.drive_id, &all);
+    let map = PathMap::build(&v.root_id, &all);
     let sel = v.index.selections()?;
     let by_id: ById = all.iter().map(|f| (f.id.as_str(), f)).collect();
-    let parent = parent_id.unwrap_or_else(|| v.drive_id.clone());
+    let parent = parent_id.unwrap_or_else(|| v.root_id.clone());
     v.index
         .children(&parent)?
         .iter()
@@ -350,7 +382,7 @@ pub struct MyChanges {
 pub async fn my_changes(state: State<'_, AppState>) -> Result<MyChanges> {
     let v = state.vault().await?;
     let all = v.index.all_files()?;
-    let map = PathMap::build(&v.drive_id, &all);
+    let map = PathMap::build(&v.root_id, &all);
     let sel = v.index.selections()?;
     let by_id: ById = all.iter().map(|f| (f.id.as_str(), f)).collect();
     let checked_out = all

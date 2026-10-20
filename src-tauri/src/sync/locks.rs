@@ -175,7 +175,7 @@ mod tests {
         let a = vault(&drive, "alex@team.org", "pc-a");
         let b = vault(&drive, "blair@team.org", "pc-b");
         for v in [&a.vault, &b.vault] {
-            v.index.set_selection(&v.drive_id, Some(true)).unwrap();
+            v.index.set_selection(&v.root_id, Some(true)).unwrap();
             v.sync_down().await.unwrap();
         }
 
@@ -200,7 +200,7 @@ mod tests {
     async fn check_out_gets_latest_first() {
         let (drive, gear) = setup().await;
         let a = vault(&drive, "alex@team.org", "pc-a");
-        a.vault.index.set_selection(&a.vault.drive_id, Some(true)).unwrap();
+        a.vault.index.set_selection(&a.vault.root_id, Some(true)).unwrap();
         a.vault.sync_down().await.unwrap();
         drive.external_edit(&gear, b"g2");
         a.vault.check_out(&gear).await.unwrap();
@@ -211,7 +211,7 @@ mod tests {
     async fn race_loser_is_detected() {
         let (drive, gear) = setup().await;
         let a = vault(&drive, "alex@team.org", "pc-a");
-        a.vault.index.set_selection(&a.vault.drive_id, Some(true)).unwrap();
+        a.vault.index.set_selection(&a.vault.root_id, Some(true)).unwrap();
         a.vault.sync_down().await.unwrap();
         a.vault.check_out(&gear).await.unwrap();
 
@@ -232,7 +232,7 @@ mod tests {
     async fn undo_with_discard_restores_latest() {
         let (drive, gear) = setup().await;
         let a = vault(&drive, "alex@team.org", "pc-a");
-        a.vault.index.set_selection(&a.vault.drive_id, Some(true)).unwrap();
+        a.vault.index.set_selection(&a.vault.root_id, Some(true)).unwrap();
         a.vault.sync_down().await.unwrap();
         a.vault.check_out(&gear).await.unwrap();
         let p = a.vault.root.join("Gear.SLDPRT");

@@ -231,7 +231,7 @@ impl<D: DriveApi> Vault<D> {
 
     /// Create any Drive folders missing on the way to a new file.
     async fn ensure_parent_folder(&self, rel: &std::path::Path) -> Result<String> {
-        let mut parent_id = self.drive_id.clone();
+        let mut parent_id = self.root_id.clone();
         let mut so_far = PathBuf::new();
         let Some(dir) = rel.parent() else { return Ok(parent_id) };
         for comp in dir.components() {
@@ -255,7 +255,7 @@ impl<D: DriveApi> Vault<D> {
         if let Some(id) = self.paths()?.meta_folder_id {
             return Ok(id);
         }
-        let f = self.drive.create_folder(&self.drive_id, META_FOLDER).await?;
+        let f = self.drive.create_folder(&self.root_id, META_FOLDER).await?;
         self.index.apply_remote(std::slice::from_ref(&f), &[])?;
         Ok(f.id)
     }
@@ -297,7 +297,7 @@ mod tests {
         let a = vault(&drive, "alex@team.org", "pc-a");
         let b = vault(&drive, "blair@team.org", "pc-b");
         for v in [&a.vault, &b.vault] {
-            v.index.set_selection(&v.drive_id, Some(true)).unwrap();
+            v.index.set_selection(&v.root_id, Some(true)).unwrap();
             v.sync_down().await.unwrap();
         }
         (drive, gear, robot, a, b)
@@ -394,6 +394,54 @@ mod tests {
         av.drive.update_metadata(&gear, av.lock_patch(&relock)).await.unwrap();
         assert!(matches!(av.push(req(vec![gear.clone()])).await, Err(Error::Conflict(_))));
         assert_eq!(std::fs::read(av.root.join("Gear.SLDPRT")).unwrap(), b"alex's gear", "local work kept");
+    }
+
+    /// The vault is a folder deep inside a bigger drive: paths start at that
+    /// folder, new files and check-in records land inside it, and the rest of
+    /// the drive is never touched.
+    #[tokio::test]
+    async fn works_when_the_vault_is_a_subfolder() {
+        let drive = FakeDrive::new("seed@team.org");
+        let top = drive.drive_id.clone();
+        let cache = drive.seed_folder(&top, "CacheCAD");
+        let robot = drive.seed_folder(&cache, "Robot");
+        let gear = drive.seed_file(&robot, "Gear.SLDPRT", b"gear v1");
+        drive.seed_file(&top, "Unrelated.txt", b"keep out");
+
+        let mut a = vault(&drive, "alex@team.org", "pc-a");
+        let mut b = vault(&drive, "blair@team.org", "pc-b");
+        for v in [&mut a.vault, &mut b.vault] {
+            v.root_id = cache.clone();
+            v.index.set_selection(&cache, Some(true)).unwrap();
+            v.sync_down().await.unwrap();
+        }
+        let (av, bv) = (&a.vault, &b.vault);
+        assert_eq!(std::fs::read(av.root.join("Robot/Gear.SLDPRT")).unwrap(), b"gear v1");
+        assert!(!av.root.join("Unrelated.txt").exists(), "files outside the folder aren't synced");
+
+        av.check_out(&gear).await.unwrap();
+        edit(av, "Robot/Gear.SLDPRT", b"gear v2");
+        std::fs::write(av.root.join("Robot/Spacer.SLDPRT"), b"new").unwrap();
+        let out = av
+            .push(PushRequest {
+                files: vec![gear.clone()],
+                new_files: vec!["Robot/Spacer.SLDPRT".into()],
+                message: "m".into(),
+                keep_locked: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(out.files, 2);
+
+        // Check-in records went inside the chosen folder, not the drive root.
+        let meta: Vec<_> = av.index.all_files().unwrap().into_iter().filter(|f| f.name == ".cadsync").collect();
+        assert_eq!(meta.len(), 1);
+        assert_eq!(meta[0].parent.as_deref(), Some(cache.as_str()), ".cadsync lives in the vault folder");
+
+        let r = bv.sync_down().await.unwrap();
+        assert_eq!(r.downloaded, 2);
+        assert_eq!(std::fs::read(bv.root.join("Robot/Gear.SLDPRT")).unwrap(), b"gear v2");
+        assert_eq!(std::fs::read(bv.root.join("Robot/Spacer.SLDPRT")).unwrap(), b"new");
     }
 
     #[tokio::test]
