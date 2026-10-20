@@ -94,7 +94,9 @@ pub async fn poll_changes<D: DriveApi>(
     };
     let mut stats = CrawlStats::default();
     loop {
+        tracing::debug!(%token, "changes: asking Drive what changed");
         let page = drive.list_changes(scope, &token).await?;
+        tracing::debug!(count = page.changes.len(), "changes: Drive answered");
         let (upserts, removals, new_folders) = filter_changes(index, root_id, page.changes)?;
 
         // A folder that just appeared in the tree (dragged in from elsewhere)
