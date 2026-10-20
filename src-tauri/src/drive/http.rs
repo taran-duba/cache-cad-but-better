@@ -23,7 +23,7 @@ const FILE_FIELDS: &str = "id,name,parents,mimeType,md5Checksum,size,headRevisio
 modifiedTime,trashed,appProperties,contentRestrictions,lastModifyingUser(emailAddress)";
 /// Resumable upload chunk; must be a multiple of 256 KiB.
 const CHUNK: u64 = 8 * 1024 * 1024;
-const MAX_ATTEMPTS: u32 = 6;
+const MAX_ATTEMPTS: u32 = 5;
 
 pub struct HttpDrive {
     http: reqwest::Client,
@@ -113,12 +113,23 @@ struct ApiChangeList {
     new_start_page_token: Option<String>,
 }
 
+/// Without a response timeout, one stalled connection hangs a sync forever
+/// (and the sync lock with it). `read_timeout` is per read, so it never cuts
+/// off a big download that is making progress. Idle pooled connections are
+/// dropped quickly so a dead one isn't reused.
+fn api_client(read_timeout: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(read_timeout)
+        .pool_idle_timeout(Duration::from_secs(20))
+        .tcp_keepalive(Duration::from_secs(30))
+        .build()
+        .expect("http client")
+}
+
 impl HttpDrive {
     pub fn new(auth: Arc<Auth>) -> Self {
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .expect("http client");
+        let http = api_client(Duration::from_secs(30));
         Self { http, auth }
     }
 
@@ -129,8 +140,14 @@ impl HttpDrive {
         loop {
             attempt += 1;
             let token = self.auth.access_token().await?;
+            let started = std::time::Instant::now();
             let err = match build(&self.http).bearer_auth(token).send().await {
-                Ok(resp) if resp.status().is_success() => return Ok(resp),
+                Ok(resp) if resp.status().is_success() => {
+                    if started.elapsed() > Duration::from_secs(5) {
+                        tracing::warn!(elapsed = ?started.elapsed(), url = %resp.url().path(), "slow Drive response");
+                    }
+                    return Ok(resp);
+                }
                 Ok(resp) if resp.status().as_u16() == 401 && !refreshed => {
                     // Access token rejected: get a fresh one and try once more.
                     refreshed = true;
@@ -142,7 +159,12 @@ impl HttpDrive {
                     let body = resp.text().await.unwrap_or_default();
                     Error::Drive { status, message: api_message(&body) }
                 }
-                Err(e) => Error::from(e),
+                Err(e) => {
+                    if e.is_timeout() {
+                        tracing::warn!(attempt, "Drive request timed out");
+                    }
+                    Error::from(e)
+                }
             };
             if !err.is_transient() || attempt >= MAX_ATTEMPTS {
                 return Err(err);
@@ -607,6 +629,24 @@ impl DriveApi for HttpDrive {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server that accepts the connection and never answers must produce a
+    /// timeout error, not a hang.
+    #[tokio::test]
+    async fn stalled_server_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(30)).await; // hold it open, say nothing
+        });
+        let client = api_client(Duration::from_millis(300));
+        let started = std::time::Instant::now();
+        let err = client.get(&url).send().await.unwrap_err();
+        assert!(err.is_timeout(), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(Error::from(err).is_transient(), "timeouts are retried");
+    }
 
     #[test]
     fn scopes_to_the_drive_only_for_members() {
