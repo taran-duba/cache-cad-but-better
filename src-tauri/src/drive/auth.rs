@@ -59,6 +59,15 @@ pub struct Auth {
     access: Mutex<Option<AccessToken>>,
 }
 
+/// Token calls are small; a stalled one must fail, not hang sign-in.
+fn token_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("http client")
+}
+
 fn b64url(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
@@ -81,7 +90,7 @@ impl Auth {
     }
 
     fn new(client: OAuthClient, refresh_token: String) -> Self {
-        Self { client, http: reqwest::Client::new(), refresh_token, access: Mutex::new(None) }
+        Self { client, http: token_http_client(), refresh_token, access: Mutex::new(None) }
     }
 
     pub fn sign_out() -> Result<()> {
@@ -110,13 +119,15 @@ impl Auth {
             .append_pair("state", &state)
             .append_pair("access_type", "offline")
             .append_pair("prompt", "consent");
+        tracing::info!(port = listener.local_addr()?.port(), "sign-in: opening the browser");
         open_browser(url.as_str());
 
         let code = tokio::time::timeout(Duration::from_secs(300), wait_for_code(&listener, &state))
             .await
             .map_err(|_| Error::Auth("sign-in timed out".into()))??;
 
-        let http = reqwest::Client::new();
+        let http = token_http_client();
+        tracing::info!("sign-in: got the authorization code, exchanging it for tokens");
         let resp: TokenResponse = check(
             http.post(TOKEN_URL)
                 .form(&[
@@ -137,6 +148,7 @@ impl Auth {
         let refresh = resp
             .refresh_token
             .ok_or_else(|| Error::Auth("Google did not return a refresh token".into()))?;
+        tracing::info!("sign-in: saving the sign-in to the system keychain");
         keyring_entry()?.set_password(&refresh).map_err(|e| Error::Auth(e.to_string()))?;
         let auth = Self::new(client, refresh);
         *auth.access.lock().await = Some(AccessToken {
@@ -223,6 +235,7 @@ async fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<S
             continue; // favicon or similar
         }
 
+        tracing::info!("sign-in: the browser came back to the app");
         let (outcome, page) = if let Some(err) = q.get("error") {
             (Err(Error::Auth(format!("Google sign-in failed: {err}"))), "Sign-in failed. You can close this tab.")
         } else if q.get("state").map(String::as_str) != Some(expected_state) {

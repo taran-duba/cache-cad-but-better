@@ -28,6 +28,9 @@ use config::AppConfig;
 pub type AppVault = Vault<Backend>;
 
 const POLL: Duration = Duration::from_secs(15);
+/// A whole sync pass (refresh + downloads) must finish within this, so one
+/// stuck request can't hold the sync lock and block Sync now and check-ins.
+const SYNC_PASS_LIMIT: Duration = Duration::from_secs(300);
 
 pub struct AppState {
     pub auth: RwLock<Option<Arc<Auth>>>,
@@ -103,6 +106,7 @@ impl AppState {
     /// Remember the Google sign-in, and open the saved drive if there is one.
     pub async fn set_auth(&self, auth: Arc<Auth>) -> Result<()> {
         let email = HttpDrive::new(auth.clone()).whoami().await?;
+        tracing::info!("signed in to Google");
         self.sign_in_expired.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.auth.write().await = Some(auth);
         *self.account.write().await = Some(email);
@@ -148,6 +152,7 @@ impl AppState {
             lock_verify_delay: Duration::from_secs(2),
         };
 
+        tracing::info!(folder = %name, shared_drive = ?vault.scope, "CAD folder opened");
         cfg.folder_id = Some(folder_id);
         cfg.root = Some(root);
         cfg.save(&self.config_path)?;
@@ -202,6 +207,25 @@ impl AppState {
     /// One sync pass: finish interrupted check-ins, refresh, get files.
     pub async fn sync_once(&self) -> Result<crate::sync::pull::PullReport> {
         let _guard = self.sync_lock.lock().await;
+        let started = std::time::Instant::now();
+        let r = match tokio::time::timeout(SYNC_PASS_LIMIT, self.sync_pass()).await {
+            Ok(r) => r,
+            Err(_) => Err(Error::Network(format!(
+                "sync took longer than {} minutes and was stopped; it will try again",
+                SYNC_PASS_LIMIT.as_secs() / 60
+            ))),
+        };
+        match &r {
+            Ok(rep) if started.elapsed() > Duration::from_secs(10) || rep.downloaded > 0 => {
+                tracing::info!(elapsed = ?started.elapsed(), downloaded = rep.downloaded, "sync pass finished")
+            }
+            Ok(_) => tracing::debug!(elapsed = ?started.elapsed(), "sync pass finished, nothing new"),
+            Err(e) => tracing::warn!(%e, elapsed = ?started.elapsed(), "sync pass failed"),
+        }
+        r
+    }
+
+    async fn sync_pass(&self) -> Result<crate::sync::pull::PullReport> {
         let vault = self.vault().await?;
         match Self::sync_vault(&vault).await {
             // Drive says "not found/forbidden" for a drive-scoped listing: the user
@@ -260,7 +284,14 @@ pub fn restore_session(app: tauri::AppHandle) {
                 tracing::error!(%e, "demo mode failed");
             }
         } else if let Some(client) = state.oauth_client().await {
-            if let Some(auth) = Auth::from_saved(client) {
+            // The system keychain can block (it may show a permission prompt),
+            // so ask it off the async workers.
+            tracing::info!("restoring the saved Google sign-in");
+            let saved = tauri::async_runtime::spawn_blocking(move || Auth::from_saved(client)).await.ok().flatten();
+            if saved.is_none() {
+                tracing::info!("no saved Google sign-in");
+            }
+            if let Some(auth) = saved {
                 match state.set_auth(Arc::new(auth)).await {
                     Ok(()) => {}
                     Err(Error::SignInExpired) => state.expire_sign_in(&app).await,
