@@ -23,6 +23,9 @@ pub const FOLDER_MIME: &str = "application/vnd.google-apps.folder";
 /// a key clears both (see `MetadataPatch::unset`).
 pub mod props {
     pub const LOCK_OWNER: &str = "permafrostLockOwner";
+    /// The owner's Google display name, for showing; `LOCK_OWNER` (the email)
+    /// stays the key that ownership is compared on.
+    pub const LOCK_OWNER_NAME: &str = "permafrostLockOwnerName";
     pub const LOCK_ID: &str = "permafrostLockId";
     pub const LOCKED_AT: &str = "permafrostLockedAt";
     pub const LOCK_MACHINE: &str = "permafrostLockMachine";
@@ -75,6 +78,7 @@ impl RemoteFile {
     pub fn lock(&self) -> Option<LockInfo> {
         Some(LockInfo {
             owner: self.prop(props::LOCK_OWNER)?.to_string(),
+            owner_name: self.prop(props::LOCK_OWNER_NAME).unwrap_or_default().to_string(),
             lock_id: self.prop(props::LOCK_ID)?.to_string(),
             locked_at: self.prop(props::LOCKED_AT).unwrap_or_default().to_string(),
             machine: self.prop(props::LOCK_MACHINE).unwrap_or_default().to_string(),
@@ -84,10 +88,33 @@ impl RemoteFile {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockInfo {
+    /// The owner's email: who holds the lock.
     pub owner: String,
+    /// The owner's Google name, empty on locks written by older versions.
+    #[serde(default)]
+    pub owner_name: String,
     pub lock_id: String,
     pub locked_at: String,
     pub machine: String,
+}
+
+impl LockInfo {
+    /// Who to call the owner when talking to a person.
+    pub fn display_owner(&self) -> &str {
+        if self.owner_name.is_empty() {
+            &self.owner
+        } else {
+            &self.owner_name
+        }
+    }
+}
+
+/// The signed-in Google account. The email identifies them; the name is for display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub email: String,
+    /// Falls back to the email when Google doesn't give a name.
+    pub name: String,
 }
 
 /// What the vault root is: any folder, in a shared drive, My Drive, or shared
@@ -155,8 +182,8 @@ impl MetadataPatch {
 
 #[allow(async_fn_in_trait)]
 pub trait DriveApi: Send + Sync {
-    /// Who is signed in (email address).
-    async fn whoami(&self) -> Result<String>;
+    /// Who is signed in.
+    async fn whoami(&self) -> Result<Account>;
     /// Resolve a folder id (or alias like "root") to its real id, name, and
     /// shared drive, if any.
     async fn folder_info(&self, id: &str) -> Result<FolderInfo>;
@@ -202,7 +229,7 @@ macro_rules! delegate {
 }
 
 impl DriveApi for Backend {
-    async fn whoami(&self) -> Result<String> {
+    async fn whoami(&self) -> Result<Account> {
         delegate!(self, d => d.whoami().await)
     }
     async fn folder_info(&self, id: &str) -> Result<FolderInfo> {

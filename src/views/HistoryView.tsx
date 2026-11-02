@@ -30,7 +30,7 @@ export function HistoryView({ revision }: { revision: number }) {
             <div className="history-head">
               <strong>{m.message}</strong>
               <span className="muted small">
-                {who(m.author)} · {ago(m.created_time)} · {Object.keys(m.files).length} file(s)
+                {who(m.author, m.author_name)} · {ago(m.created_time)} · {Object.keys(m.files).length} file(s)
               </span>
             </div>
           </li>

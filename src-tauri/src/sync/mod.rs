@@ -31,6 +31,8 @@ pub struct Vault<D> {
     /// so SolidWorks' reference search never finds half-downloaded files).
     pub data_dir: PathBuf,
     pub me: String,
+    /// My Google name, shown to teammates on my locks and check-ins.
+    pub my_name: String,
     pub machine: String,
     /// How long to wait before re-reading a lock to detect a race.
     pub lock_verify_delay: Duration,
@@ -90,6 +92,7 @@ pub(crate) mod testutil {
             root: root.path().to_path_buf(),
             data_dir: data.path().to_path_buf(),
             me: user.to_string(),
+            my_name: user.to_string(),
             machine: machine.to_string(),
             lock_verify_delay: Duration::from_millis(0),
         };

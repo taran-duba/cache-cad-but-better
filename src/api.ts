@@ -6,6 +6,7 @@ export type FileStatus = "synced" | "outdated" | "not_synced" | "modified" | "pe
 
 export interface LockInfo {
   owner: string;
+  owner_name: string;
   lock_id: string;
   locked_at: string;
   machine: string;
@@ -30,6 +31,7 @@ export interface Entry {
 export interface Status {
   signInAvailable: boolean;
   account: string | null;
+  accountName: string | null;
   signedIn: boolean;
   signInExpired: boolean;
   restoring: boolean;
@@ -109,6 +111,7 @@ export interface MyChanges {
 export interface Manifest {
   id: string;
   author: string;
+  author_name: string;
   message: string;
   created_time: string;
   files: Record<string, string>;
@@ -157,8 +160,9 @@ export function errorText(e: unknown): string {
   return typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e);
 }
 
-export function who(email: string | null | undefined): string {
-  return email ? email.split("@")[0] : "someone";
+/** How to name a teammate: their Google name, else (older data) the part of their email before the @. */
+export function who(email: string | null | undefined, name?: string | null): string {
+  return name || (email ? email.split("@")[0] : "someone");
 }
 
 export function ago(iso: string): string {
