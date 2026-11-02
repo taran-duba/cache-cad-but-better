@@ -35,6 +35,7 @@ pub async fn build(dir: &Path) -> Result<Vault<Backend>> {
     // A teammate has a file checked out.
     let lock = LockInfo {
         owner: "jordan@demo.team".into(),
+        owner_name: "Jordan Lee".into(),
         lock_id: "demo".into(),
         // Three days old, so the demo shows a probably-forgotten lock.
         locked_at: (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339(),
@@ -43,6 +44,7 @@ pub async fn build(dir: &Path) -> Result<Vault<Backend>> {
     let teammate = drive.as_user("jordan@demo.team");
     let patch = MetadataPatch::default()
         .set(props::LOCK_OWNER, &lock.owner)
+        .set(props::LOCK_OWNER_NAME, &lock.owner_name)
         .set(props::LOCK_ID, &lock.lock_id)
         .set(props::LOCKED_AT, &lock.locked_at)
         .set(props::LOCK_MACHINE, &lock.machine)
@@ -59,6 +61,7 @@ pub async fn build(dir: &Path) -> Result<Vault<Backend>> {
         root: root_dir,
         data_dir: dir.to_path_buf(),
         me: "you@demo.team".into(),
+        my_name: "Casey Demo".into(),
         machine: "THIS-PC".into(),
         lock_verify_delay: Duration::from_millis(300),
     })

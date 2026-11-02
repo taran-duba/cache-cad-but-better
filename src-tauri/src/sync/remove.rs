@@ -48,7 +48,7 @@ impl<D: DriveApi> Vault<D> {
         }
         if let Some(l) = f.lock() {
             if !self.i_hold_lock(&f) {
-                return Err(Error::Locked { name: f.name, by: l.owner });
+                return Err(Error::Locked { name: f.name, by: l.display_owner().to_string() });
             }
         }
         if f.prop(props::PENDING_CHANGESET).is_some() {

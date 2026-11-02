@@ -27,6 +27,8 @@ pub struct Status {
     sign_in_available: bool,
     /// Signed in to Google (may not have picked a drive yet).
     account: Option<String>,
+    /// The signed-in account's Google name.
+    account_name: Option<String>,
     /// A shared drive is open.
     signed_in: bool,
     /// Google rejected the saved sign-in; show "sign in again".
@@ -124,7 +126,8 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
     let refs_available = refs_enabled && sidecar_path(&cfg).is_some_and(|p| p.exists());
     Ok(Status {
         sign_in_available: state.oauth_client().await.is_some(),
-        account: state.account.read().await.clone(),
+        account: state.account.read().await.as_ref().map(|a| a.email.clone()),
+        account_name: state.account.read().await.as_ref().map(|a| a.name.clone()),
         signed_in: vault.is_some(),
         sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
         restoring: state.restoring.load(std::sync::atomic::Ordering::Relaxed),

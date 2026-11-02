@@ -187,8 +187,8 @@ impl FakeDrive {
 }
 
 impl DriveApi for FakeDrive {
-    async fn whoami(&self) -> Result<String> {
-        Ok(self.user.clone())
+    async fn whoami(&self) -> Result<Account> {
+        Ok(Account { email: self.user.clone(), name: self.user.clone() })
     }
 
     async fn folder_info(&self, id: &str) -> Result<FolderInfo> {

@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 
 use crate::drive::auth::{Auth, OAuthClient};
 use crate::drive::http::HttpDrive;
-use crate::drive::{Backend, DriveApi};
+use crate::drive::{Account, Backend, DriveApi};
 use crate::error::{Error, Result};
 use crate::index::Index;
 use crate::sync::Vault;
@@ -33,7 +33,7 @@ const SYNC_PASS_LIMIT: Duration = Duration::from_secs(300);
 
 pub struct AppState {
     pub auth: RwLock<Option<Arc<Auth>>>,
-    pub account: RwLock<Option<String>>,
+    pub account: RwLock<Option<Account>>,
     pub vault: RwLock<Option<Arc<AppVault>>>,
     pub folder_name: RwLock<Option<String>>,
     pub config: RwLock<AppConfig>,
@@ -115,11 +115,11 @@ impl AppState {
 
     /// Remember the Google sign-in, and open the saved drive if there is one.
     pub async fn set_auth(&self, auth: Arc<Auth>) -> Result<()> {
-        let email = HttpDrive::new(auth.clone()).whoami().await?;
+        let account = HttpDrive::new(auth.clone()).whoami().await?;
         tracing::info!("signed in to Google");
         self.sign_in_expired.store(false, std::sync::atomic::Ordering::Relaxed);
         *self.auth.write().await = Some(auth);
-        *self.account.write().await = Some(email);
+        *self.account.write().await = Some(account);
         let auth = self.auth.read().await.clone().ok_or_else(|| Error::Auth("sign in with Google first".into()))?;
         self.open_saved_folder_on(Backend::Http(HttpDrive::new(auth))).await;
         Ok(())
@@ -147,7 +147,7 @@ impl AppState {
     }
 
     pub(crate) async fn open_folder_on(&self, drive: Backend, folder_id: &str) -> Result<()> {
-        let me = self.account.read().await.clone().unwrap_or_default();
+        let (me, my_name) = self.account.read().await.clone().map(|a| (a.email, a.name)).unwrap_or_default();
         let info = drive.folder_info(folder_id).await?;
         if !info.is_folder {
             return Err(Error::Config("that link isn't a folder".into()));
@@ -171,6 +171,7 @@ impl AppState {
             root: root.clone(),
             data_dir: vault_data,
             me,
+            my_name,
             machine: machine_name(),
             lock_verify_delay: Duration::from_secs(2),
         };
@@ -217,7 +218,7 @@ impl AppState {
     pub async fn open_demo(&self) -> Result<()> {
         let dir = self.data_dir.join("demo");
         let vault = demo::build(&dir).await?;
-        *self.account.write().await = Some(vault.me.clone());
+        *self.account.write().await = Some(Account { email: vault.me.clone(), name: vault.my_name.clone() });
         *self.vault.write().await = Some(Arc::new(vault));
         *self.folder_name.write().await = Some("Demo Team Drive".into());
         self.demo.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -358,7 +359,7 @@ mod tests {
         let state = AppState::with_paths(dir.path().join("data"), dir.path().join("config.json"));
         let drive = FakeDrive::new("alex@team.org");
         state.config.write().await.folder_id = Some(drive.drive_id.clone());
-        *state.account.write().await = Some("alex@team.org".into());
+        *state.account.write().await = Some(Account { email: "alex@team.org".into(), name: "Alex Team".into() });
 
         let opened = tokio::time::timeout(
             Duration::from_secs(5),

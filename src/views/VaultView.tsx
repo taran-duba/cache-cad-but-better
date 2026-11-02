@@ -198,7 +198,7 @@ export function VaultView({
                         title={`${e.lock.owner} on ${e.lock.machine} — click for options`}
                         onClick={() => setHelpFor(helpFor === e.id ? null : e.id)}
                       >
-                        🔒 {who(e.lock.owner)} · {ago(e.lock.locked_at)}
+                        🔒 {who(e.lock.owner, e.lock.owner_name)} · {ago(e.lock.locked_at)}
                         {isStale(e.lock.locked_at) && " · forgotten?"}
                       </button>
                     ))}
@@ -351,7 +351,7 @@ function LockHelp({
 }) {
   const [sure, setSure] = useState(false);
   const lock = entry.lock!;
-  const name = who(lock.owner);
+  const name = who(lock.owner, lock.owner_name);
   const message = `Hey ${name}, can you check in ${entry.name} in Permafrost (or Undo check-out if you didn't change it)? I need to edit it.`;
 
   const copy = async () => {

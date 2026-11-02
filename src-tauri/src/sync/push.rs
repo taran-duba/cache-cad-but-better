@@ -83,7 +83,7 @@ impl<D: DriveApi> Vault<D> {
             self.index.apply_remote(std::slice::from_ref(&f), &[])?;
             if !self.i_hold_lock(&f) {
                 return Err(match f.lock() {
-                    Some(l) => Error::Locked { name: f.name, by: l.owner },
+                    Some(l) => Error::Locked { name: f.name, by: l.display_owner().to_string() },
                     None => Error::NotCheckedOut(f.name),
                 });
             }
@@ -155,6 +155,7 @@ impl<D: DriveApi> Vault<D> {
         let manifest = Manifest {
             id: j.id.clone(),
             author: self.me.clone(),
+            author_name: self.my_name.clone(),
             message: j.message.clone(),
             created_time: j.created_time.clone(),
             files: j
@@ -220,6 +221,7 @@ impl<D: DriveApi> Vault<D> {
                 let props = BTreeMap::from([
                     (props::PENDING_CHANGESET.to_string(), changeset.to_string()),
                     (props::LOCK_OWNER.to_string(), self.me.clone()),
+                    (props::LOCK_OWNER_NAME.to_string(), self.my_name.clone()),
                     (props::LOCK_ID.to_string(), ulid::Ulid::new().to_string()),
                     (props::LOCKED_AT.to_string(), chrono::Utc::now().to_rfc3339()),
                     (props::LOCK_MACHINE.to_string(), self.machine.clone()),
@@ -387,6 +389,7 @@ mod tests {
         drive.external_edit(&gear, b"someone else's gear");
         let relock = crate::drive::LockInfo {
             owner: av.me.clone(),
+            owner_name: av.my_name.clone(),
             lock_id: "x".into(),
             locked_at: String::new(),
             machine: av.machine.clone(),

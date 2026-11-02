@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS selection (file_id TEXT PRIMARY KEY, mode INTEGER NOT
 CREATE TABLE IF NOT EXISTS changesets (
     id TEXT PRIMARY KEY,
     author TEXT NOT NULL,
+    author_name TEXT NOT NULL DEFAULT '',
     message TEXT NOT NULL,
     created_time TEXT NOT NULL
 );
@@ -91,7 +92,11 @@ pub struct LocalState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
     pub id: String,
+    /// The author's email.
     pub author: String,
+    /// The author's Google name; empty on check-ins from older versions.
+    #[serde(default)]
+    pub author_name: String,
     pub message: String,
     pub created_time: String,
     /// file id -> revision id
@@ -143,6 +148,13 @@ impl Index {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        // Indexes made before check-ins recorded the author's name.
+        let has_author_name = conn
+            .prepare("SELECT 1 FROM pragma_table_info('changesets') WHERE name = 'author_name'")?
+            .exists([])?;
+        if !has_author_name {
+            conn.execute("ALTER TABLE changesets ADD COLUMN author_name TEXT NOT NULL DEFAULT ''", [])?;
+        }
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -302,8 +314,8 @@ impl Index {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT OR IGNORE INTO changesets(id, author, message, created_time) VALUES (?1, ?2, ?3, ?4)",
-            params![m.id, m.author, m.message, m.created_time],
+            "INSERT OR IGNORE INTO changesets(id, author, author_name, message, created_time) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![m.id, m.author, m.author_name, m.message, m.created_time],
         )?;
         for (file, rev) in &m.files {
             tx.execute(
@@ -338,16 +350,16 @@ impl Index {
     pub fn changeset(&self, id: &str) -> Result<Option<Manifest>> {
         let conn = self.conn();
         let head = conn
-            .query_row("SELECT id, author, message, created_time FROM changesets WHERE id = ?1", [id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            .query_row("SELECT id, author, author_name, message, created_time FROM changesets WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
             })
             .optional()?;
-        let Some((id, author, message, created_time)) = head else { return Ok(None) };
+        let Some((id, author, author_name, message, created_time)) = head else { return Ok(None) };
         let mut st = conn.prepare_cached("SELECT file_id, revision_id FROM changeset_revs WHERE changeset_id = ?1")?;
         let files = st
             .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Some(Manifest { id, author, message, created_time, files }))
+        Ok(Some(Manifest { id, author, author_name, message, created_time, files }))
     }
 
     pub fn recent_changesets(&self, limit: u32) -> Result<Vec<Manifest>> {
@@ -454,11 +466,28 @@ mod tests {
     }
 
     #[test]
+    fn adds_author_name_to_an_older_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.sqlite");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE changesets (id TEXT PRIMARY KEY, author TEXT NOT NULL, message TEXT NOT NULL, created_time TEXT NOT NULL);
+                 INSERT INTO changesets VALUES ('cs0', 'a@x', 'old', '2025-01-01T00:00:00Z');",
+            )
+            .unwrap();
+        let ix = Index::open(&path).unwrap();
+        assert_eq!(ix.changeset("cs0").unwrap().unwrap().author_name, "");
+        Index::open(&path).unwrap(); // reopening doesn't try to add it again
+    }
+
+    #[test]
     fn stores_changesets_and_journal() {
         let ix = Index::in_memory().unwrap();
         let m = Manifest {
             id: "cs1".into(),
             author: "a@x".into(),
+            author_name: "Alex".into(),
             message: "arm".into(),
             created_time: "2026-01-01T00:00:00Z".into(),
             files: BTreeMap::from([("f1".into(), "r2".into())]),

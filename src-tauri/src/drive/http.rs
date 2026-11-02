@@ -20,7 +20,7 @@ use crate::error::{Error, Result};
 const API: &str = "https://www.googleapis.com/drive/v3";
 const UPLOAD: &str = "https://www.googleapis.com/upload/drive/v3";
 const FILE_FIELDS: &str = "id,name,parents,mimeType,md5Checksum,size,headRevisionId,createdTime,\
-modifiedTime,trashed,appProperties,contentRestrictions,lastModifyingUser(emailAddress)";
+modifiedTime,trashed,appProperties,contentRestrictions,lastModifyingUser(displayName,emailAddress)";
 /// Resumable upload chunk; must be a multiple of 256 KiB.
 const CHUNK: u64 = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: u32 = 5;
@@ -64,6 +64,7 @@ struct ApiRestriction {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApiUser {
+    display_name: Option<String>,
     email_address: Option<String>,
 }
 
@@ -82,7 +83,7 @@ impl From<ApiFile> for RemoteFile {
             trashed: f.trashed,
             read_only: f.content_restrictions.iter().any(|r| r.read_only),
             app_properties: f.app_properties,
-            last_modifier: f.last_modifying_user.and_then(|u| u.email_address),
+            last_modifier: f.last_modifying_user.and_then(|u| u.display_name.filter(|n| !n.is_empty()).or(u.email_address)),
         }
     }
 }
@@ -423,9 +424,12 @@ fn props_json(map: &BTreeMap<String, Option<String>>) -> Value {
 }
 
 impl DriveApi for HttpDrive {
-    async fn whoami(&self) -> Result<String> {
-        let v: Value = self.json(|c| c.get(format!("{API}/about")).query(&[("fields", "user(emailAddress)")])).await?;
-        Ok(v["user"]["emailAddress"].as_str().unwrap_or_default().to_string())
+    async fn whoami(&self) -> Result<Account> {
+        let v: Value =
+            self.json(|c| c.get(format!("{API}/about")).query(&[("fields", "user(displayName,emailAddress)")])).await?;
+        let email = v["user"]["emailAddress"].as_str().unwrap_or_default().to_string();
+        let name = v["user"]["displayName"].as_str().filter(|n| !n.is_empty()).map_or_else(|| email.clone(), str::to_string);
+        Ok(Account { email, name })
     }
 
     async fn folder_info(&self, id: &str) -> Result<FolderInfo> {

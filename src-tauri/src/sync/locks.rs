@@ -17,15 +17,17 @@ impl<D: DriveApi> Vault<D> {
     pub(crate) fn lock_patch(&self, lock: &LockInfo) -> MetadataPatch {
         MetadataPatch::default()
             .set(props::LOCK_OWNER, &lock.owner)
+            .set(props::LOCK_OWNER_NAME, &lock.owner_name)
             .set(props::LOCK_ID, &lock.lock_id)
             .set(props::LOCKED_AT, &lock.locked_at)
             .set(props::LOCK_MACHINE, &lock.machine)
-            .read_only(true, Some(format!("Checked out by {} in Permafrost", lock.owner)))
+            .read_only(true, Some(format!("Checked out by {} in Permafrost", lock.display_owner())))
     }
 
     pub(crate) fn unlock_patch() -> MetadataPatch {
         MetadataPatch::default()
             .unset(props::LOCK_OWNER)
+            .unset(props::LOCK_OWNER_NAME)
             .unset(props::LOCK_ID)
             .unset(props::LOCKED_AT)
             .unset(props::LOCK_MACHINE)
@@ -44,7 +46,7 @@ impl<D: DriveApi> Vault<D> {
             if self.i_hold_lock(&f) {
                 return Ok(l);
             }
-            return Err(Error::Locked { name: f.name.clone(), by: l.owner });
+            return Err(Error::Locked { name: f.name.clone(), by: l.display_owner().to_string() });
         }
         let rel = self
             .paths()?
@@ -55,6 +57,7 @@ impl<D: DriveApi> Vault<D> {
 
         let lock = LockInfo {
             owner: self.me.clone(),
+            owner_name: self.my_name.clone(),
             lock_id: ulid::Ulid::new().to_string(),
             locked_at: chrono::Utc::now().to_rfc3339(),
             machine: self.machine.clone(),
@@ -67,7 +70,7 @@ impl<D: DriveApi> Vault<D> {
         self.index.apply_remote(std::slice::from_ref(&check), &[])?;
         match check.lock() {
             Some(l) if l.lock_id == lock.lock_id => {}
-            Some(l) => return Err(Error::Locked { name: f.name, by: l.owner }),
+            Some(l) => return Err(Error::Locked { name: f.name, by: l.display_owner().to_string() }),
             None => return Err(Error::Conflict(format!("lock on {} was removed", f.name))),
         }
 
@@ -248,6 +251,7 @@ mod tests {
         let blair = drive.as_user("blair@team.org");
         let theirs = LockInfo {
             owner: "blair@team.org".into(),
+            owner_name: String::new(),
             lock_id: "other".into(),
             locked_at: String::new(),
             machine: "pc-b".into(),

@@ -23,7 +23,7 @@ export function Onboarding({
           Permafrost
         </div>
         {status.account ? (
-          <FolderPicker account={status.account} onChanged={onChanged} toasts={toasts} />
+          <FolderPicker account={status.accountName || status.account} onChanged={onChanged} toasts={toasts} />
         ) : (
           <Welcome status={status} onChanged={onChanged} toasts={toasts} />
         )}
