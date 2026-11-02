@@ -126,7 +126,9 @@ export default function App() {
         {signedIn && (
           <div className="topbar-info">
             <span title={status.root ?? ""}>{status.folderName}</span>
-            <span className="muted">· {status.me}</span>
+            <span className="muted" title={status.me ?? ""}>
+              · {status.accountName || status.me}
+            </span>
           </div>
         )}
         <div className="topbar-actions">

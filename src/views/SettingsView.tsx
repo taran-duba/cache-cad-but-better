@@ -36,7 +36,8 @@ export function SettingsView({
         <div>
           <div className="setting-label">Account</div>
           <div>
-            {status.me}
+            {status.accountName || status.me}
+            {status.accountName && status.me && <span className="muted"> ({status.me})</span>}
             {status.demo && <span className="muted"> (demo — nothing here touches Google Drive)</span>}
           </div>
         </div>
