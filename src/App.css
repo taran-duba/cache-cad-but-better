@@ -29,7 +29,8 @@
   --shadow-md: 0 4px 14px rgb(17 28 38 / 0.08), 0 1px 3px rgb(17 28 38 / 0.05);
   --shadow-lg: 0 18px 48px rgb(17 28 38 / 0.16), 0 2px 6px rgb(17 28 38 / 0.06);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Libre Franklin Variable", "Libre Franklin", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk Variable", "Space Grotesk", var(--font-sans);
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
   font-family: var(--font-sans);
   font-size: 14px;
@@ -129,6 +130,7 @@ code,
 }
 
 .brand {
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 15px;
   letter-spacing: -0.02em;
@@ -218,6 +220,7 @@ code,
 h1,
 h2,
 h3 {
+  font-family: var(--font-display);
   letter-spacing: -0.02em;
 }
 

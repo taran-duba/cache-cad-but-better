@@ -98,7 +98,7 @@ Apple Silicon bundles, uploads them with a `latest.json` manifest to a draft rel
 it once both platforms succeed. The tag must match the `tauri.conf.json` version.
 
 One-time setup: the updater signing key. The public half is in `tauri.conf.json`; keep the private
-key (and its password, if any) in the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and
+key and its password in the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If it is lost, installed copies can no longer be updated and
 people have to reinstall by hand. Generate a new pair with `pnpm tauri signer generate -w <file>`
 and put the new public key in `tauri.conf.json`. Updates only apply to builds that already contain
