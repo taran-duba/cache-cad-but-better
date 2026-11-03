@@ -79,10 +79,10 @@ export function Story() {
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={active}
-                    initial={{ opacity: 0, y: 24, scale: 0.98, filter: "blur(6px)" }}
-                    animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, y: -16, scale: 0.98, filter: "blur(4px)", transition: { duration: 0.2 } }}
-                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                    initial={{ opacity: 0, y: 16, scale: 0.985 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.985, transition: { duration: 0.18 } }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.5 }}
                   >
                     {(() => {
                       const Scene = STEPS[active].Scene;
@@ -133,7 +133,7 @@ function StepText({
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
     >
       <p className="story-num">
-        <span className="mono">0{index + 1}</span> {step.tag}
+        <span className="story-idx mono">0{index + 1}</span> {step.tag}
       </p>
       <h3 className="story-title">{step.title}</h3>
       <p className="story-body">{step.body}</p>
