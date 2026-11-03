@@ -35,12 +35,14 @@
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-md: 0 4px 14px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.3);
   --shadow-lg: 0 18px 48px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.35);
-  --shadow-window: 0 40px 120px -20px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.04),
-    0 0 80px -10px color-mix(in srgb, var(--accent) 22%, transparent);
+  --shadow-window: 0 30px 80px -20px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
 
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Libre Franklin Variable", "Libre Franklin", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk Variable", "Space Grotesk", var(--font-sans);
+  --spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --material: color-mix(in srgb, var(--panel) 72%, transparent);
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
 
   --max: 1200px;
@@ -52,8 +54,9 @@
   color-scheme: dark;
   font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 1.6;
-  font-feature-settings: "cv11", "ss03";
+  line-height: 1.5;
+  letter-spacing: -0.011em;
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--text);
@@ -96,7 +99,7 @@ button {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
-  border-radius: 4px;
+  border-radius: 8px;
 }
 
 ::selection {
@@ -108,9 +111,10 @@ h2,
 h3,
 h4 {
   margin: 0;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: -0.022em;
+  line-height: 1.12;
+  font-weight: 600;
   text-wrap: balance;
 }
 
@@ -166,66 +170,57 @@ code,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 44px;
-  padding: 10px 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  font-weight: 550;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  font-weight: 500;
   font-size: 15px;
   line-height: 1.2;
+  letter-spacing: -0.012em;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: background 0.2s var(--ease), border-color 0.2s var(--ease), transform 0.2s var(--ease),
-    box-shadow 0.2s var(--ease), color 0.2s var(--ease);
+  transition: background 0.25s var(--spring), transform 0.12s ease-out, color 0.25s var(--spring);
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:hover {
-  background: var(--hover);
-  border-color: color-mix(in srgb, var(--line) 50%, var(--muted));
+  background: rgb(255 255 255 / 0.16);
 }
 
+/* feedback lives on the press, instantly */
 .btn:active {
   transform: scale(0.97);
+  transition-duration: 0.06s;
 }
 
 .btn-primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: var(--accent-text);
-  font-weight: 650;
-  box-shadow: 0 8px 30px -8px color-mix(in srgb, var(--accent) 70%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 0.35);
+  font-weight: 600;
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  box-shadow: 0 10px 38px -8px color-mix(in srgb, var(--accent) 85%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 0.4);
 }
 
 .btn-lg {
   min-height: 52px;
-  padding: 14px 24px;
-  font-size: 16px;
-  border-radius: 12px;
+  padding: 14px 28px;
+  font-size: 17px;
 }
 
 .btn-ghost {
   background: transparent;
-  border-color: transparent;
-  box-shadow: none;
   color: var(--muted);
 }
 
 .btn-ghost:hover {
   color: var(--text);
-  background: var(--hover);
-  border-color: transparent;
+  background: rgb(255 255 255 / 0.08);
 }
 
 .btn svg {
@@ -235,7 +230,7 @@ code,
 .btn-sub {
   display: block;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   opacity: 0.72;
   margin-top: 2px;
 }
@@ -266,6 +261,25 @@ code,
 .pill-lock { background: var(--lock-bg); color: var(--lock); }
 .pill-mine { background: var(--ok-bg); color: var(--ok); font-weight: 600; }
 .pill-dim { background: var(--dim-bg); color: var(--muted); }
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --material: var(--panel);
+  }
+  .nav.scrolled,
+  .story-tabs,
+  .dl-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --line: var(--line-strong);
+    --muted: #c3d1d8;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   html {

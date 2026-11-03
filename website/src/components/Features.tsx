@@ -58,14 +58,9 @@ export function Features() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.25 }}
               transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: (i % 3) * 0.06 }}
-              onPointerMove={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
-                e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
-              }}
             >
               <span className="card-icon">
-                <f.icon size={20} strokeWidth={1.75} />
+                <f.icon size={28} strokeWidth={1.5} />
               </span>
               <h3>{f.title}</h3>
               <p>{f.body}</p>

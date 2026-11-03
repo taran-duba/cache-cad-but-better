@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import "@fontsource-variable/inter";
+import "@fontsource-variable/libre-franklin";
+import "@fontsource-variable/space-grotesk";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles/base.css";
 import "./styles/site.css";

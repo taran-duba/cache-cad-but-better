@@ -14,11 +14,7 @@ export default function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <div className="backdrop" aria-hidden>
-        <div className="backdrop-glow a" />
-        <div className="backdrop-glow b" />
-        <div className="backdrop-grain" />
-      </div>
+      <div className="backdrop" aria-hidden />
       <Nav />
       <main id="main">
         <span id="top" />

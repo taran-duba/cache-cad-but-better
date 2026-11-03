@@ -6,8 +6,8 @@ import { DownloadButtons } from "./DownloadButtons";
 
 const ease = [0.16, 1, 0.3, 1] as const;
 const rise = (delay: number) => ({
-  initial: { opacity: 0, y: 18, filter: "blur(6px)" },
-  animate: { opacity: 1, y: 0, filter: "blur(0px)" },
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
   transition: { duration: 0.8, ease, delay },
 });
 
@@ -19,6 +19,7 @@ export function Hero() {
   const rotateX = useTransform(scrollYProgress, [0, 1], reduce ? [0, 0] : [24, 0]);
   const scale = useTransform(scrollYProgress, [0, 1], reduce ? [1, 1] : [0.9, 1]);
   const y = useTransform(scrollYProgress, [0, 1], reduce ? [0, 0] : [40, 0]);
+
   const glow = useTransform(scrollYProgress, [0, 1], [0.35, 1]);
 
   return (
@@ -26,10 +27,10 @@ export function Hero() {
       <div className="hero-frost" aria-hidden />
       <div className="container hero-copy">
         <motion.p className="eyebrow" {...rise(0)}>
-          <span className="eyebrow-dot" /> SolidWorks + Google Drive, for FRC teams
+          SolidWorks + Google Drive, for FRC teams
         </motion.p>
         <motion.h1 id="hero-title" className="hero-title" {...rise(0.08)}>
-          Shared CAD that <span className="ice-text">stays solid</span>.
+          Shared CAD that <span className="accent-text">stays solid</span>.
         </motion.h1>
         <motion.p className="hero-lede" {...rise(0.16)}>
           Permafrost keeps your team's SolidWorks files in sync through Google Drive. Check a file out, edit it, check it
