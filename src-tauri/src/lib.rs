@@ -21,6 +21,8 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let log_dir = app::log_dir(app.handle());
             app.manage(app::logging::init(&log_dir));
