@@ -1,15 +1,20 @@
 import { useState } from "react";
 import { api, errorText, Status } from "../api";
 import type { ToastApi } from "../Toasts";
+import type { UpdaterState } from "../updater";
 
 export function SettingsView({
   status,
   onChanged,
   toasts,
+  updater,
+  onInstallUpdate,
 }: {
   status: Status;
   onChanged: () => void;
   toasts: ToastApi;
+  updater: UpdaterState;
+  onInstallUpdate: () => void;
 }) {
   const [folder, setFolder] = useState(status.root ?? "");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -78,6 +83,35 @@ export function SettingsView({
             <div className="small muted">Not available here: it runs on Windows with SolidWorks installed.</div>
           )}
         </div>
+      </div>
+
+      <div className="setting-row">
+        <div>
+          <div className="setting-label">Updates</div>
+          <div className="muted small">
+            {updater.version
+              ? `Version ${updater.version} is ready to install. Permafrost restarts to finish.`
+              : "Permafrost checks for new versions in the background."}
+          </div>
+        </div>
+        {updater.version ? (
+          <button className="btn btn-primary" onClick={onInstallUpdate} disabled={updater.installing}>
+            {updater.installing ? "Updating…" : "Install and restart"}
+          </button>
+        ) : (
+          <button
+            className="btn"
+            disabled={updater.checking}
+            onClick={() =>
+              updater
+                .checkNow()
+                .then((r) => r === "current" && toasts.info("You're on the latest version."))
+                .catch((e) => toasts.error(`Couldn't check for updates: ${errorText(e)}`))
+            }
+          >
+            {updater.checking ? "Checking…" : "Check for updates"}
+          </button>
+        )}
       </div>
 
       <div className="setting-row">

@@ -1,0 +1,102 @@
+# Publishes a Permafrost release: signed Windows and macOS installers plus the
+# latest.json manifest the in-app updater reads.
+#
+#   1. Bump "version" in src-tauri/tauri.conf.json (also package.json and src-tauri/Cargo.toml).
+#   2. git tag v<version> && git push origin v<version>
+#
+# Needs repo secrets TAURI_SIGNING_PRIVATE_KEY (the updater signing key; its public
+# half is in tauri.conf.json) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD (empty if the key
+# has no password). Optionally CADSYNC_GOOGLE_CLIENT_ID/SECRET, same as the CI builds.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            # createUpdaterArtifacts makes the build emit the signed update bundles.
+            config: '{"bundle":{"createUpdaterArtifacts":true}}'
+          - os: macos-latest # Apple Silicon (arm64)
+            # Ad-hoc signed, not notarized; see macos.yml.
+            config: '{"bundle":{"createUpdaterArtifacts":true,"macOS":{"signingIdentity":"-"}}}'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} doesn't match version ${version} in src-tauri/tauri.conf.json"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # Windows builds SwRefs (pnpm sidecar, run by tauri.windows.conf.json).
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Write build config
+        shell: bash
+        env:
+          CI_CONFIG: ${{ matrix.config }}
+        run: echo "$CI_CONFIG" > "$RUNNER_TEMP/release.conf.json"
+
+      - name: Build, sign and upload to a draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CADSYNC_GOOGLE_CLIENT_ID: ${{ secrets.CADSYNC_GOOGLE_CLIENT_ID }}
+          CADSYNC_GOOGLE_CLIENT_SECRET: ${{ secrets.CADSYNC_GOOGLE_CLIENT_SECRET }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Permafrost ${{ github.ref_name }}
+          releaseDraft: true
+          uploadUpdaterJson: true
+          args: --config ${{ runner.temp }}/release.conf.json
+
+  # Both platforms upload to the same draft; publish only when both succeeded, so
+  # latest.json never points at a release that is missing a platform.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

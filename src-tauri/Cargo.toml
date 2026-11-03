@@ -1,6 +1,6 @@
 [package]
 name = "permafrost"
-version = "0.1.0"
+version = "1.2.0"
 description = "SolidWorks + Google Drive sync with check-out locks and atomic changesets"
 authors = ["permafrost contributors"]
 edition = "2021"
@@ -38,6 +38,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-single-instance = "2"
 tracing-appender = "0.2"
+
+# Desktop-only: in-app updates (signed bundles from GitHub Releases) and relaunch after install.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -82,6 +82,28 @@ syncing, locks and check-ins work.
 
 Build one yourself with `pnpm tauri build`.
 
+## Releasing and updating
+
+Installed copies update themselves. They check GitHub Releases for a newer signed version (at
+startup and every 6 hours), show an **Update to x.y.z · restart** button, and install it only when
+clicked. Settings › Updates has a manual **Check for updates**. Dev builds don't check.
+
+To ship a release:
+
+1. Bump `version` in `src-tauri/tauri.conf.json` (and `package.json`, `src-tauri/Cargo.toml`).
+2. Commit, then `git tag v<version> && git push origin v<version>`.
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds and signs the Windows and
+Apple Silicon bundles, uploads them with a `latest.json` manifest to a draft release, and publishes
+it once both platforms succeed. The tag must match the `tauri.conf.json` version.
+
+One-time setup: the updater signing key. The public half is in `tauri.conf.json`; keep the private
+key (and its password, if any) in the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If it is lost, installed copies can no longer be updated and
+people have to reinstall by hand. Generate a new pair with `pnpm tauri signer generate -w <file>`
+and put the new public key in `tauri.conf.json`. Updates only apply to builds that already contain
+the updater, so the first release with it must be installed manually.
+
 ## Not done yet
 
 - Not yet run against real Google Drive or SolidWorks. Work through

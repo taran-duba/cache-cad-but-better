@@ -8,6 +8,7 @@ import { SettingsView } from "./views/SettingsView";
 import { Onboarding } from "./views/Onboarding";
 import { Toasts, useToasts } from "./Toasts";
 import { Spinner, useDelayedFlag } from "./Spinner";
+import { useUpdater } from "./updater";
 import "./App.css";
 
 type Tab = "vault" | "changes" | "history" | "settings";
@@ -23,6 +24,8 @@ export default function App() {
   const [lastSync, setLastSync] = useState<{ at: Date; report?: PullReport; error?: string } | null>(null);
   const [revision, setRevision] = useState(0); // bump to make views reload
   const toasts = useToasts();
+  // Dev builds and the CI smoke test have no signed release to compare against.
+  const updater = useUpdater(!import.meta.env.DEV);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -89,6 +92,16 @@ export default function App() {
     }
   };
 
+  const installUpdate = async () => {
+    const pending = status?.pendingCheckIns ?? 0;
+    if (pending > 0 && !window.confirm(`${pending} check-in(s) are still finishing. Restart for the update anyway? They will resume afterwards.`)) return;
+    try {
+      await updater.install();
+    } catch (e) {
+      toasts.error(errorText(e));
+    }
+  };
+
   const changed = () => {
     setRevision((r) => r + 1);
     refreshStatus();
@@ -132,6 +145,18 @@ export default function App() {
           </div>
         )}
         <div className="topbar-actions">
+          {updater.version && (
+            <button
+              className="pill pill-info pill-button"
+              onClick={installUpdate}
+              disabled={updater.installing}
+              title={updater.notes ?? undefined}
+            >
+              {updater.installing
+                ? `Updating${updater.progress != null ? ` ${Math.round(updater.progress * 100)}%` : "…"}`
+                : `Update to ${updater.version} · restart`}
+            </button>
+          )}
           {signedIn && <SyncState syncing={showSync} last={lastSync} pending={status?.pendingCheckIns ?? 0} />}
           {signedIn && (
             <button className="btn" onClick={() => api.revealRoot().catch((e) => toasts.error(errorText(e)))}>
@@ -181,7 +206,7 @@ export default function App() {
           )}
           {tab === "changes" && signedIn && <ChangesView revision={revision} onChanged={changed} toasts={toasts} />}
           {tab === "history" && signedIn && <HistoryView revision={revision} />}
-          {tab === "settings" && <SettingsView status={status} onChanged={changed} toasts={toasts} />}
+          {tab === "settings" && <SettingsView status={status} onChanged={changed} toasts={toasts} updater={updater} onInstallUpdate={installUpdate} />}
         </div>
       </main>
       <Toasts state={toasts} />
