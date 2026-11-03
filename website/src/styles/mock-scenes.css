@@ -1,0 +1,147 @@
+/* Pieces used only by the animated demo scenes (components/scenes.tsx). */
+
+.mock-syncbar {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.mock-syncbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: mock-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes mock-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
+
+.mock-spinner {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  opacity: 0.75;
+  animation: mock-spin 0.7s linear infinite;
+}
+
+@keyframes mock-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pill-stale {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.mock-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mock-dot-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+.mock-label {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.mock-push {
+  margin-left: auto;
+}
+
+.mock-input {
+  margin-top: 10px;
+  padding: 7px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.mock-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mock-problem code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.mock-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.mock-row-actions .mock-progress {
+  margin-top: 0;
+}
+
+.mock-btn.is-disabled {
+  opacity: 0.45;
+}
+
+.mock-row.names {
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1.25fr);
+}
+
+.mock-arrow {
+  color: var(--accent);
+  text-align: center;
+}
+
+.mock-local-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mock-name.changed {
+  color: var(--ice);
+}
+
+@container (max-width: 520px) {
+  .mock-row.names { grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr); }
+}
+
+.mock-btn-primary.pressed {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-text);
+}
+
+/* On My changes the bottom is busy; the empty corner by the heading is free. */
+.mock-toast.top {
+  top: 12px;
+  bottom: auto;
+}

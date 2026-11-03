@@ -1,0 +1,315 @@
+/* Story walkthrough and sync flow. */
+
+.story,
+.flow,
+.features,
+.download {
+  padding: clamp(80px, 12vw, 140px) 0;
+}
+
+/* ---- story ---- */
+
+.story-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(40px, 5vw, 80px);
+}
+
+.story-steps {
+  position: relative;
+  padding-left: 32px;
+}
+
+.story-stack .story-steps {
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 88px;
+}
+
+.story-rail {
+  position: absolute;
+  left: 0;
+  top: 18vh;
+  bottom: 18vh;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.story-rail-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(var(--ice), var(--accent));
+  transform-origin: top;
+  box-shadow: 0 0 12px var(--accent);
+}
+
+.story-grid .story-step {
+  min-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.story-step {
+  transition: opacity 0.4s var(--ease);
+}
+
+.story-grid .story-step:not(.on) {
+  opacity: 0.32 !important;
+}
+
+.story-num {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.story-num .mono {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.story-title {
+  font-size: clamp(26px, 3vw, 36px);
+}
+
+.story-body {
+  margin-top: 16px;
+  max-width: 48ch;
+  color: var(--muted);
+  font-size: 17px;
+}
+
+.story-points {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.story-points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.story-points li::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.story-stage {
+  position: relative;
+}
+
+.story-stage-inner {
+  position: sticky;
+  top: calc(50vh - 250px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.story-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.story-tab {
+  position: relative;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  transition: color 0.25s var(--ease);
+}
+
+.story-tab.on {
+  color: var(--accent-text);
+}
+
+.story-tab-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.story-tab {
+  isolation: isolate;
+}
+
+.story-inline {
+  margin-top: 28px;
+}
+
+/* ---- sync flow ---- */
+
+.flow-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(80px, 0.6fr) 1fr minmax(80px, 0.6fr) 1fr;
+  align-items: center;
+}
+
+.flow-node {
+  padding: 26px 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, white 3%), var(--panel));
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+.flow-node h3 {
+  margin-top: 16px;
+  font-size: 18px;
+}
+
+.flow-node p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+
+.flow-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.flow-link {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+}
+
+.flow-track {
+  position: relative;
+  width: 100%;
+  height: 2px;
+  background: var(--line);
+  border-radius: 2px;
+}
+
+.flow-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--ice));
+  transform: scaleX(var(--p, 0));
+  transform-origin: left;
+}
+
+/* The packet layer spans the whole track, so translating it by 100% runs the full length. */
+.flow-packet {
+  position: absolute;
+  inset: 0;
+  animation: packet-x 2.6s linear infinite;
+}
+
+.flow-packet.late {
+  animation-delay: 1.3s;
+}
+
+.flow-packet::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -18px;
+  width: 18px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ice);
+  box-shadow: 0 0 12px var(--accent);
+}
+
+@keyframes packet-x {
+  from { transform: translateX(0); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  to { transform: translateX(calc(100% + 18px)); opacity: 0; }
+}
+
+@keyframes packet-y {
+  from { transform: translateY(0); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  to { transform: translateY(calc(100% + 16px)); opacity: 0; }
+}
+
+.flow-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .flow-row {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  .flow-link {
+    flex-direction: row;
+    justify-content: center;
+    height: 72px;
+  }
+  .flow-track {
+    width: 2px;
+    height: 100%;
+  }
+  .flow-fill {
+    transform: scaleY(var(--p, 0));
+    transform-origin: top;
+  }
+  .flow-packet {
+    animation-name: packet-y;
+  }
+  .flow-packet::after {
+    top: -16px;
+    left: -2px;
+    width: 6px;
+    height: 16px;
+  }
+  .flow-label {
+    position: absolute;
+    left: calc(50% + 16px);
+  }
+}
