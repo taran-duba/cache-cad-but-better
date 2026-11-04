@@ -21,10 +21,10 @@ const STEPS: Step[] = [
     Scene: CheckoutScene,
   },
   {
-    tag: "Check in",
+    tag: "Push",
     title: "Assemblies arrive whole.",
     body: "An assembly and its changed parts upload together, or not at all. Before anything leaves your PC, Permafrost asks SolidWorks for the real references and stops on missing files, files outside the vault and duplicate names.",
-    points: ["Atomic check-ins", "References read by SolidWorks itself", "A plain-language fix for every problem"],
+    points: ["Atomic pushes", "References read by SolidWorks itself", "A plain-language fix for every problem"],
     Scene: CheckinScene,
   },
   {

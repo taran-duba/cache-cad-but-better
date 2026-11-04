@@ -17,6 +17,14 @@ public interface IReferenceReader : IDisposable
     /// Throws <see cref="ReferenceReaderException"/> for expected failures.
     /// </summary>
     IReadOnlyList<RefEntry> GetReferences(string path);
+
+    /// <summary>
+    /// Makes the closed file at <paramref name="document"/> reference <paramref name="newReference"/>
+    /// wherever it referenced <paramref name="oldReference"/> (the path as stored). Used when a
+    /// referenced file is renamed or moved. Throws <see cref="ReferenceReaderException"/> on failure.
+    /// </summary>
+    void ReplaceReference(string document, string oldReference, string newReference) =>
+        throw new ReferenceReaderException(Protocol.ErrorCodes.Unsupported, $"{Name} can't rewrite references");
 }
 
 /// <summary>An expected failure carrying one of the protocol's <see cref="Protocol.ErrorCodes"/>.</summary>

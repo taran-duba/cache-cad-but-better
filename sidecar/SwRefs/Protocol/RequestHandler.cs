@@ -41,6 +41,7 @@ public sealed class RequestHandler(IReferenceReader reader, TextWriter log)
             {
                 "ping" => Ping(id),
                 "refs" => Refs(id, root),
+                "replace" => Replace(id, root),
                 var op => Error(id, ErrorCodes.BadRequest, $"unknown op \"{op}\""),
             };
         }
@@ -108,6 +109,45 @@ public sealed class RequestHandler(IReferenceReader reader, TextWriter log)
                 w.WriteEndObject();
             }
             w.WriteEndArray();
+        });
+    }
+
+    /// <summary><c>{"op":"replace","path":doc,"old":storedRef,"new":newPath}</c> → <c>{"ok":true}</c>.</summary>
+    private string Replace(string? id, JsonElement root)
+    {
+        string? Str(string name) =>
+            root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(el.GetString())
+                ? el.GetString()
+                : null;
+        var (path, oldRef, newRef) = (Str("path"), Str("old"), Str("new"));
+        if (path is null || oldRef is null || newRef is null)
+            return Error(id, ErrorCodes.BadRequest, "\"replace\" needs non-empty strings \"path\", \"old\" and \"new\"");
+        foreach (var p in new[] { path, newRef })
+        {
+            if (p.Contains('\0') || !PathRules.IsAbsolute(p))
+                return Error(id, ErrorCodes.BadRequest, $"path must be absolute: {p}");
+            if (!PathRules.HasSupportedExtension(p))
+                return Error(id, ErrorCodes.Unsupported, $"not a SolidWorks part, assembly or drawing: {p}");
+        }
+
+        try
+        {
+            reader.ReplaceReference(path, oldRef, newRef);
+        }
+        catch (ReferenceReaderException e)
+        {
+            log.WriteLine($"swrefs: replace in {path}: {e.Code} {e.Message}");
+            return Error(id, e.Code, e.Message);
+        }
+        catch (Exception e)
+        {
+            log.WriteLine($"swrefs: replace in {path} failed: {e}");
+            return Error(id, ErrorCodes.OpenFailed, $"could not update references in {path}: {e.Message}");
+        }
+        return Write(w =>
+        {
+            w.WriteString("id", id);
+            w.WriteBoolean("ok", true);
         });
     }
 

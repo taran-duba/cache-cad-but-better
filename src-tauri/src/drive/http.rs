@@ -601,13 +601,17 @@ impl DriveApi for HttpDrive {
             }
             body.insert("contentRestrictions".into(), json!([r]));
         }
+        if let Some(name) = &patch.name {
+            body.insert("name".into(), json!(name));
+        }
         let body = Value::Object(body);
+        let mut query = vec![("supportsAllDrives", "true".to_string()), ("fields", FILE_FIELDS.to_string())];
+        if let Some((from, to)) = &patch.reparent {
+            query.push(("removeParents", from.clone()));
+            query.push(("addParents", to.clone()));
+        }
         let f: ApiFile = self
-            .json(|c| {
-                c.patch(format!("{API}/files/{file_id}"))
-                    .query(&[("supportsAllDrives", "true"), ("fields", FILE_FIELDS)])
-                    .json(&body)
-            })
+            .json(|c| c.patch(format!("{API}/files/{file_id}")).query(&query).json(&body))
             .await?;
         Ok(f.into())
     }

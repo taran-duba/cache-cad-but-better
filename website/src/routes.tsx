@@ -11,7 +11,7 @@ export const ROUTES: Route[] = [
     path: "/",
     title: "Permafrost · SolidWorks + Google Drive file sharing for FRC teams",
     description:
-      "Permafrost keeps your team's SolidWorks files in sync through Google Drive, with check-out locks, atomic check-ins and instant browsing. For Windows and Mac.",
+      "Permafrost keeps your team's SolidWorks files in sync through Google Drive, with check-out locks, atomic pushes and instant browsing. For Windows and Mac.",
     Page: App,
   },
   {

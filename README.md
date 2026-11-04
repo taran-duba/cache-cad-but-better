@@ -7,20 +7,25 @@ SolidWorks + Google Drive file sharing for FRC teams, built to fix what went wro
 | Slow loading | A local SQLite index of your CAD folder (a whole shared drive, or just one folder inside it), updated incrementally from Drive's change feed. Browsing never waits on the network. |
 | Crashes | Drive names (`/`, emoji, `CON`, duplicates, trailing dots) are mapped to safe Windows names; sync runs in the background with a crash-safe journal. |
 | Overwrites and conflicts | Check-out locks (Drive content restriction plus lock properties), and read-only local files for anything you haven't checked out. |
-| Broken mates | Atomic check-ins: an assembly and its changed parts arrive together or not at all. References are read by asking SolidWorks itself, and check-ins are blocked for missing files, files outside the vault, and duplicate names. |
+| Broken mates | Atomic pushes: an assembly and its changed parts arrive together or not at all. References are read by asking SolidWorks itself; pushes are blocked for missing files and files outside the vault, and checking out an assembly checks out the parts it uses. |
+| Renames break assemblies | **Rename** in Permafrost moves a file or folder and has SolidWorks repoint every assembly and drawing that uses it, all in one push. |
+| No way back | Every push is kept forever. **History** restores a file, or an assembly with its parts, to any earlier push. |
 
 ## Layout
 
 - `src-tauri/`: Rust core (Tauri v2)
   - `drive/`: Google Drive client, OAuth, and an in-memory fake for tests and demo mode
   - `index/`: SQLite index and deterministic path mapping
-  - `sync/`: crawl and changes, pull planner, locks, atomic push
-  - `refs.rs`: SwRefs client and pre-check-in validation
+  - `sync/`: crawl and changes, pull planner, locks, atomic push, restore
+  - `refs.rs`: SwRefs client and pre-push validation
+  - `checkout.rs`: checking out folders, and assemblies with their parts
+  - `rename.rs`: rename and move with reference rewriting
   - `app/`: Tauri commands, config, background poller
 - `src/`: React UI
 - `sidecar/`: SwRefs (C#), which reads SolidWorks references through the SolidWorks API
 - `docs/SETUP.md`: one-time team setup (Google OAuth client, CAD folder)
 - `docs/TESTING.md`: step-by-step Windows test plan with two PCs, and a results table to fill in
+- `docs/CADDER-TESTING.md`: the same, for CAD team members using an installed release
 
 ## Develop
 
@@ -106,8 +111,10 @@ the updater, so the first release with it must be installed manually.
 
 ## Not done yet
 
-- Not yet run against real Google Drive or SolidWorks. Work through
-  [docs/TESTING.md](docs/TESTING.md) on a test shared drive before the team relies on it.
-- The Windows installer with the bundled SwRefs.exe has not been built or installed on Windows yet.
-- Restoring old versions from History, renames and moves with reference rewriting, and the
-  SolidWorks add-in.
+- Not yet run by the team against real Google Drive and SolidWorks end to end. Work through
+  [docs/CADDER-TESTING.md](docs/CADDER-TESTING.md) (or [docs/TESTING.md](docs/TESTING.md)) on a
+  test folder before the team relies on it. Reference rewriting for Rename uses SolidWorks'
+  `ReplaceReferencedDocument`, which has only been tested against a fake.
+- The Windows installer is built, installed and smoke-tested by CI on every push, and releases
+  have been installed on real Windows PCs, but not yet checked against the full test plan.
+- A SolidWorks add-in (pushing from inside SolidWorks).

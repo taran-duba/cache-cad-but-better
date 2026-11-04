@@ -1,9 +1,11 @@
 pub mod app;
+pub mod checkout;
 pub mod drive;
 pub mod error;
 pub mod index;
 pub mod names;
 pub mod refs;
+pub mod rename;
 pub mod sync;
 
 use tauri::Manager;
@@ -47,8 +49,8 @@ pub fn run() {
             app::commands::list_children,
             app::commands::set_selection,
             app::commands::select_all,
-            app::commands::check_out_all,
-            app::commands::check_out_with_refs,
+            app::file_ops::check_out_all,
+            app::file_ops::check_out_with_refs,
             app::commands::sync_now,
             app::commands::check_out,
             app::commands::undo_check_out,
@@ -56,7 +58,9 @@ pub fn run() {
             app::commands::my_changes,
             app::commands::preview_check_in,
             app::commands::check_in,
-            app::commands::history,
+            app::file_ops::history,
+            app::file_ops::rename_item,
+            app::file_ops::restore_push,
             app::commands::reveal_root,
             app::commands::open_file,
             app::commands::frontend_ready,

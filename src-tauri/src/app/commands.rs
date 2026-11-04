@@ -12,9 +12,9 @@ use crate::drive::auth::Auth;
 use crate::drive::http::BrowseFolder;
 use crate::drive::{props, LockInfo, RemoteFile};
 use crate::error::{Error, Result};
-use crate::index::{Manifest, PathMap};
+use crate::index::PathMap;
 use crate::names::{cad_kind, is_temp_file, CadKind};
-use crate::refs::{CheckInPlan, CheckOutRefsReport, Problem, RefReader, SidecarRefs, StaticRefs};
+use crate::refs::{CheckInPlan, Problem, SidecarRefs, StaticRefs};
 use crate::sync::localfs;
 use crate::sync::pull::{is_selected, PullReport};
 use crate::sync::push::{PushOutcome, PushRequest};
@@ -316,51 +316,6 @@ pub async fn select_all(state: State<'_, AppState>, folder_id: Option<String>) -
     v.index.select_subtree(&id)
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CheckOutAllReport {
-    checked_out: usize,
-    /// Files someone else already has checked out.
-    locked_by_others: usize,
-    /// Files that failed for another reason (first error message kept).
-    failed: usize,
-    first_error: Option<String>,
-}
-
-/// "Check out all": select everything under a folder, then check out every file in it that nobody holds.
-#[tauri::command]
-pub async fn check_out_all(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    folder_id: Option<String>,
-) -> Result<CheckOutAllReport> {
-    let v = state.vault().await?;
-    let id = folder_id.unwrap_or_else(|| v.root_id.clone());
-    v.index.select_subtree(&id)?;
-    let map = PathMap::build(&v.root_id, &v.index.all_files()?);
-    let mut report = CheckOutAllReport { checked_out: 0, locked_by_others: 0, failed: 0, first_error: None };
-    for f in v.index.descendants(&id)? {
-        if f.is_folder() || f.trashed || !map.contains(&f.id) {
-            continue;
-        }
-        if f.lock().is_some() && !v.i_hold_lock(&f) {
-            report.locked_by_others += 1;
-            continue;
-        }
-        match v.check_out(&f.id).await {
-            Ok(_) => report.checked_out += 1,
-            Err(Error::Locked { .. }) => report.locked_by_others += 1,
-            Err(e) => {
-                report.failed += 1;
-                report.first_error.get_or_insert_with(|| format!("{}: {e}", f.name));
-            }
-        }
-    }
-    tracing::info!(folder = %id, checked_out = report.checked_out, "checked out folder");
-    let _ = app.emit("vault-changed", ());
-    Ok(report)
-}
-
 #[tauri::command]
 pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<PullReport> {
     let r = state.sync_tracked(&app).await;
@@ -372,25 +327,6 @@ pub async fn check_out(app: AppHandle, state: State<'_, AppState>, file_id: Stri
     let r = state.vault().await?.check_out(&file_id).await;
     if let Ok(l) = &r {
         tracing::info!(file = %file_id, owner = %l.owner, "checked out");
-    }
-    state.check_expired(&app, r).await
-}
-
-/// Check out a file plus everything an assembly references.
-#[tauri::command]
-pub async fn check_out_with_refs(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    file_id: String,
-) -> Result<CheckOutRefsReport> {
-    let v = state.vault().await?;
-    let cfg = state.config.read().await.clone();
-    let r = match sidecar_path(&cfg).filter(|p| p.exists()).filter(|_| !cfg.refs_disabled) {
-        Some(exe) => v.check_out_with_refs(&SidecarRefs::new(exe), &file_id).await,
-        None => v.check_out_with_refs(&StaticRefs::default(), &file_id).await,
-    };
-    if let Ok(rep) = &r {
-        tracing::info!(file = %file_id, deps = rep.deps_checked_out, "checked out with references");
     }
     state.check_expired(&app, r).await
 }
@@ -568,6 +504,7 @@ pub async fn check_in(app: AppHandle, state: State<'_, AppState>, args: CheckInA
             new_files: preview.plan.new_files,
             message,
             keep_locked: args.keep_locked,
+            moves: vec![],
         })
         .await;
     match &r {
@@ -578,11 +515,6 @@ pub async fn check_in(app: AppHandle, state: State<'_, AppState>, args: CheckInA
     let out = state.check_expired(&app, r).await?;
     let _ = app.emit("vault-changed", ());
     Ok(out)
-}
-
-#[tauri::command]
-pub async fn history(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<Manifest>> {
-    state.vault().await?.index.recent_changesets(limit.unwrap_or(50).min(500))
 }
 
 #[tauri::command]

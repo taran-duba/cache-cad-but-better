@@ -79,6 +79,28 @@ public sealed class SolidWorksComSession : ISolidWorksSession
         }
     }
 
+    public bool ReplaceReferencedDocument(string referencing, string referenced, string newReference)
+    {
+        var app = _app ?? throw new ObjectDisposedException(nameof(SolidWorksComSession));
+        try
+        {
+            return (bool)((dynamic)app).ReplaceReferencedDocument(referencing, referenced, newReference);
+        }
+        catch (COMException e) when (BinderFailures.Contains(e.HResult))
+        {
+            _log.WriteLine($"swrefs: dynamic call failed (0x{e.HResult:X8}); retrying through IDispatch");
+            try
+            {
+                return (bool)app.GetType().InvokeMember("ReplaceReferencedDocument",
+                    System.Reflection.BindingFlags.InvokeMethod, null, app, [referencing, referenced, newReference])!;
+            }
+            catch (System.Reflection.TargetInvocationException t) when (t.InnerException is COMException inner)
+            {
+                throw inner;
+            }
+        }
+    }
+
     public void Dispose()
     {
         var app = _app;

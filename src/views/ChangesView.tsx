@@ -49,6 +49,7 @@ export function ChangesView({
   const [preview, setPreview] = useState<CheckInPreview | null>(null);
   const [message, setMessage] = useState("");
   const [keepLocked, setKeepLocked] = useState(false);
+  const [releaseUnedited, setReleaseUnedited] = useState(true);
   const [allowDupes, setAllowDupes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -93,6 +94,11 @@ export function ChangesView({
   const blocking = preview?.plan.problems.filter((p) => !(allowDupes && p.kind === "duplicate_name")) ?? [];
   const hasDupes = preview?.plan.problems.some((p) => p.kind === "duplicate_name") ?? false;
 
+  /** Checked-out files with no edits that this push doesn't include. */
+  const unedited = (changes?.checkedOut ?? []).filter(
+    (e) => e.status !== "modified" && !(preview?.plan.files ?? []).includes(e.id),
+  );
+
   const checkIn = async () => {
     if (!preview) return;
     setBusy(true);
@@ -104,7 +110,21 @@ export function ChangesView({
         keepLocked,
         allowDuplicateNames: allowDupes,
       });
-      toasts.info(`Pushed ${out.files} file(s). Teammates get them all together.`);
+      let msg = `Pushed ${out.files} file(s). Teammates get them all together.`;
+      if (releaseUnedited && !keepLocked) {
+        // Parts checked out along with an assembly but never edited would otherwise stay locked.
+        let released = 0;
+        for (const e of unedited) {
+          try {
+            await api.undoCheckOut(e.id, false);
+            released++;
+          } catch {
+            /* left checked out; it still shows in this list */
+          }
+        }
+        if (released) msg += ` Released ${released} file(s) you didn't edit.`;
+      }
+      toasts.info(msg);
       setMessage("");
       setPreview(null);
       onChanged();
@@ -202,6 +222,25 @@ export function ChangesView({
             </p>
           )}
 
+          {preview.plan.unreadable.length > 0 && (
+            <div className="notice notice-warn">
+              SolidWorks couldn't read {preview.plan.unreadable.map((u) => u.file).join(", ")}
+              {preview.plan.unreadable.every((u) => u.used_saved)
+                ? ", so the parts it used last time were checked instead."
+                : ", so parts it uses weren't added automatically."}{" "}
+              If you changed any of its parts, tick them above before pushing.
+              <div className="muted small">{preview.plan.unreadable[0].error}</div>
+            </div>
+          )}
+
+          {preview.plan.matched_by_name.length > 0 && (
+            <p className="muted small">
+              {preview.plan.matched_by_name.length} reference(s) still have an old path from outside the vault, but each matches
+              exactly one file in it, so they're fine to push. To clean them up, open the assembly in SolidWorks, rebuild
+              (Ctrl+Q) and save. For example: {preview.plan.matched_by_name[0].found}.
+            </p>
+          )}
+
           {preview.plan.problems.length > 0 && (
             <>
               <h3>Fix before pushing</h3>
@@ -239,6 +278,12 @@ export function ChangesView({
             <input type="checkbox" checked={keepLocked} onChange={(e) => setKeepLocked(e.target.checked)} />
             Keep these files checked out
           </label>
+          {!keepLocked && unedited.length > 0 && (
+            <label className="check">
+              <input type="checkbox" checked={releaseUnedited} onChange={(e) => setReleaseUnedited(e.target.checked)} />
+              Also release the {unedited.length} checked-out file(s) you didn't edit, so teammates can use them
+            </label>
+          )}
           <div className="row">
             <button
               className="btn btn-primary"

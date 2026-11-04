@@ -7,6 +7,7 @@ pub mod locks;
 pub mod pull;
 pub mod push;
 pub mod remove;
+pub mod restore;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -36,6 +37,11 @@ pub struct Vault<D> {
     pub machine: String,
     /// How long to wait before re-reading a lock to detect a race.
     pub lock_verify_delay: Duration,
+}
+
+/// A vault-relative path as shown to people: always `/`, on every OS.
+pub fn shown(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
 }
 
 impl<D: DriveApi> Vault<D> {

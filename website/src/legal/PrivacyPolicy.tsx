@@ -70,13 +70,13 @@ export function PrivacyPolicy() {
                 modification times, who last changed each file, and Permafrost's own lock information), and downloads the
                 files you choose to keep on your computer;
               </li>
-              <li>uploads new files and new versions of files when you check them in;</li>
+              <li>uploads new files and new versions of files when you push your changes;</li>
               <li>
                 marks files as checked out and releases them afterwards, by setting Drive's read-only content restriction
                 and adding hidden app properties (your email address, your name, your computer's name and the time);
               </li>
               <li>
-                writes a small check-in record for every check-in to a <code>.permafrost</code> folder inside your CAD
+                writes a small record of every push to a <code>.permafrost</code> folder inside your CAD
                 folder (your email address, your name, your message, the time and which file versions went up);
               </li>
               <li>moves a file to the shared drive's trash when you choose Delete.</li>
@@ -88,7 +88,7 @@ export function PrivacyPolicy() {
             Your email address and basic sign-in identity <code>(openid, email)</code>
           </dt>
           <dd>
-            Used to show which account you're signed in with, and to label your check-outs and check-ins so teammates can
+            Used to show which account you're signed in with, and to label your check-outs and pushes so teammates can
             see who has a file.
           </dd>
         </dl>
@@ -97,7 +97,7 @@ export function PrivacyPolicy() {
       <Section id="use" title="How the data is used">
         <p>
           Permafrost uses Google data only to provide the features you see in the app: browsing, downloading, checking
-          out, checking in and showing history for your team's CAD files. Specifically, we don't:
+          out, pushing changes and showing history for your team's CAD files. Specifically, we don't:
         </p>
         <ul>
           <li>sell Google data or any other user data;</li>
@@ -148,7 +148,7 @@ export function PrivacyPolicy() {
         </p>
         <h3>In your Google Drive</h3>
         <p>
-          The files you check in, the lock information and the check-in records described above are stored in your
+          The files you push, the lock information and the push records described above are stored in your
           team's Google Drive, under your team's Drive settings and{" "}
           <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.
         </p>
@@ -160,7 +160,7 @@ export function PrivacyPolicy() {
         </p>
         <p>
           The people who already have access to your team's shared drive or folder can see what Permafrost writes there,
-          including who has a file checked out, from which computer, and the history of check-ins. That access is
+          including who has a file checked out, from which computer, and the history of pushes. That access is
           controlled by your team's Drive sharing settings, not by Permafrost.
         </p>
       </Section>

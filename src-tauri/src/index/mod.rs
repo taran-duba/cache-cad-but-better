@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS refs (
     to_path TEXT NOT NULL,
     PRIMARY KEY (from_id, to_path)
 );
+-- Which Drive revision the refs above were read from (no row = read from local, unpushed edits).
+CREATE TABLE IF NOT EXISTS refs_rev (from_id TEXT PRIMARY KEY, rev TEXT NOT NULL);
 "#;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -438,9 +440,21 @@ impl Index {
     // ---- references ----
 
     pub fn set_refs(&self, from_id: &str, to_paths: &[String]) -> Result<()> {
+        self.set_refs_at(from_id, None, to_paths)
+    }
+
+    /// Record references read from Drive revision `rev` (`None`: from local, possibly edited content).
+    pub fn set_refs_at(&self, from_id: &str, rev: Option<&str>, to_paths: &[String]) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM refs WHERE from_id = ?1", [from_id])?;
+        match rev {
+            Some(r) => tx.execute(
+                "INSERT INTO refs_rev(from_id, rev) VALUES (?1, ?2) ON CONFLICT(from_id) DO UPDATE SET rev = ?2",
+                [from_id, r],
+            )?,
+            None => tx.execute("DELETE FROM refs_rev WHERE from_id = ?1", [from_id])?,
+        };
         for p in to_paths {
             tx.execute("INSERT OR IGNORE INTO refs(from_id, to_path) VALUES (?1, ?2)", [from_id, p])?;
         }
@@ -454,6 +468,17 @@ impl Index {
         let mut st = conn.prepare_cached("SELECT from_id, to_path FROM refs")?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The Drive revision the saved references of `from_id` were read from, if known.
+    pub fn refs_rev(&self, from_id: &str) -> Result<Option<String>> {
+        let conn = self.conn();
+        let mut st = conn.prepare_cached("SELECT rev FROM refs_rev WHERE from_id = ?1")?;
+        let mut rows = st.query([from_id])?;
+        Ok(match rows.next()? {
+            Some(r) => Some(r.get(0)?),
+            None => None,
+        })
     }
 
     pub fn refs(&self, from_id: &str) -> Result<Vec<String>> {

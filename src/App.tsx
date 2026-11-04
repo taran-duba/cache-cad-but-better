@@ -205,7 +205,7 @@ export default function App() {
             <VaultView revision={revision} onChanged={changed} toasts={toasts} syncing={syncActive} />
           )}
           {tab === "changes" && signedIn && <ChangesView revision={revision} onChanged={changed} toasts={toasts} />}
-          {tab === "history" && signedIn && <HistoryView revision={revision} />}
+          {tab === "history" && signedIn && <HistoryView revision={revision} onChanged={changed} toasts={toasts} />}
           {tab === "settings" && <SettingsView status={status} onChanged={changed} toasts={toasts} updater={updater} onInstallUpdate={installUpdate} />}
         </div>
       </main>

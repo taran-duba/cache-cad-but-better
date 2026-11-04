@@ -28,8 +28,11 @@ pnpm tauri build                       # installer/dmg -> src-tauri/target/relea
 - `drive/`: Drive client behind a trait, with the real HTTP implementation (`http.rs`), OAuth (`auth.rs`), and an in-memory `fake.rs` used by tests and demo mode. Prefer testing sync logic against the fake.
 - `index/`: SQLite index of the chosen Drive folder plus deterministic Drive-name → safe-Windows-path mapping (`paths.rs`, `names.rs`). The UI browses this index and never waits on the network.
 - `sync/`: `crawl` (initial crawl + incremental Drive change feed), `pull` (planner), `locks` (Drive content restriction + lock properties), `push` (atomic check-in: assembly and changed parts land together or not at all), `remove`, `localfs` (read-only local files for anything not checked out).
-- `refs.rs`: client for the SwRefs sidecar and pre-check-in validation (blocks missing files, files outside the vault, duplicate names).
-- `app/`: Tauri commands (`commands.rs`, all registered in `lib.rs`'s `generate_handler!`), config, `AppState`, background poller, logging/crash reports, demo mode, and `smoke.rs`.
+- `refs.rs`: client for the SwRefs sidecar (read and rewrite references) and pre-push validation (blocks missing files and files outside the vault; falls back to saved references when SolidWorks can't read a file).
+- `checkout.rs`: checking out many files at once (a folder, or an assembly plus everything it references), in parallel.
+- `rename.rs`: rename/move a file or folder: finds every assembly/drawing using it, rewrites their references via SwRefs, and pushes them together with the Drive move as one changeset. `sync/restore.rs` restores files from a past push as a new push.
+- The UI calls the "check-in" step **push** ("Push changes"); code identifiers still say check_in.
+- `app/`: Tauri commands (`commands.rs`, plus multi-file ones in `file_ops.rs`; all registered in `lib.rs`'s `generate_handler!`), config, `AppState`, background poller, logging/crash reports, demo mode, and `smoke.rs`.
 
 **Frontend (`src/`)**: React 19 + Vite. `src/api.ts` is the typed wrapper over Tauri `invoke`; when adding a command, register it in `lib.rs` and add its wrapper there. Views are in `src/views/`.
 

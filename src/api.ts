@@ -75,19 +75,27 @@ export type Deferred =
   | { reason: "open"; file_id: string }
   | { reason: "modified_orphan"; file_id: string };
 
-export interface CheckOutAllReport {
+export interface CheckOutReport {
+  /** Newly checked out, not counting files you already had. */
   checkedOut: number;
-  lockedByOthers: number;
+  /** How many of those were added because an assembly uses them. */
+  depsCheckedOut: number;
+  lockedByOthers: string[];
+  missing: number;
   failed: number;
   firstError: string | null;
 }
 
-export interface CheckOutRefsReport {
-  depsCheckedOut: number;
-  depsLockedByOthers: string[];
-  depsMissing: number;
-  depsFailed: number;
-  firstError: string | null;
+export interface RenameReport {
+  newPath: string;
+  updated: string[];
+  changeset: string;
+}
+
+export interface RestoreReport {
+  changeset: string;
+  restored: string[];
+  unchanged: number;
 }
 
 export interface PullReport {
@@ -110,6 +118,8 @@ export interface CheckInPlan {
   files: string[];
   new_files: string[];
   auto_included: string[];
+  matched_by_name: { from: string; reference: string; found: string }[];
+  unreadable: { file: string; error: string; used_saved: boolean }[];
   problems: Problem[];
 }
 
@@ -132,6 +142,10 @@ export interface Manifest {
   files: Record<string, string>;
 }
 
+export interface HistoryEntry extends Manifest {
+  fileList: { id: string; path: string | null; name: string }[];
+}
+
 export const api = {
   status: () => invoke<Status>("get_status"),
   setRefsEnabled: (enabled: boolean) => invoke<void>("set_refs_enabled", { enabled }),
@@ -148,8 +162,11 @@ export const api = {
   listChildren: (parentId: string | null) => invoke<Entry[]>("list_children", { parentId }),
   setSelection: (fileId: string, get: boolean | null) => invoke<void>("set_selection", { fileId, get }),
   selectAll: (folderId: string | null) => invoke<void>("select_all", { folderId }),
-  checkOutWithRefs: (fileId: string) => invoke<CheckOutRefsReport>("check_out_with_refs", { fileId }),
-  checkOutAll: (folderId: string | null) => invoke<CheckOutAllReport>("check_out_all", { folderId }),
+  checkOutWithRefs: (fileId: string) => invoke<CheckOutReport>("check_out_with_refs", { fileId }),
+  checkOutAll: (folderId: string | null) => invoke<CheckOutReport>("check_out_all", { folderId }),
+  renameItem: (fileId: string, newPath: string) => invoke<RenameReport>("rename_item", { fileId, newPath }),
+  restorePush: (changesetId: string, files: string[] | null) =>
+    invoke<RestoreReport>("restore_push", { changesetId, files }),
   syncNow: () => invoke<PullReport>("sync_now"),
   checkOut: (fileId: string) => invoke<LockInfo>("check_out", { fileId }),
   undoCheckOut: (fileId: string, discardChanges: boolean) =>
@@ -165,7 +182,7 @@ export const api = {
     keepLocked: boolean;
     allowDuplicateNames: boolean;
   }) => invoke<{ changeset: string; files: number }>("check_in", { args }),
-  history: (limit?: number) => invoke<Manifest[]>("history", { limit }),
+  history: (limit?: number) => invoke<HistoryEntry[]>("history", { limit }),
   openFile: (fileId: string) => invoke<void>("open_file", { fileId }),
   revealRoot: () => invoke<void>("reveal_root"),
   frontendReady: () => invoke<void>("frontend_ready"),

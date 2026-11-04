@@ -97,7 +97,7 @@ export function Download() {
             )}
             <ul className="dl-notes">
               {!macMissing && <li>Not notarized yet: the first time, right-click the app and choose Open.</li>}
-              <li>SolidWorks doesn't run on macOS, so reference checking is off. Syncing, locks and check-ins all work.</li>
+              <li>SolidWorks doesn't run on macOS, so reference checking is off. Syncing, locks and pushing changes all work.</li>
             </ul>
           </motion.article>
         </div>

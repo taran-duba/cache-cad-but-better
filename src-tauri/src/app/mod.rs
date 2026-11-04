@@ -5,6 +5,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod file_ops;
 mod demo;
 pub mod logging;
 pub mod smoke;
