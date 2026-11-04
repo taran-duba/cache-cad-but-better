@@ -94,7 +94,7 @@ export default function App() {
 
   const installUpdate = async () => {
     const pending = status?.pendingCheckIns ?? 0;
-    if (pending > 0 && !window.confirm(`${pending} check-in(s) are still finishing. Restart for the update anyway? They will resume afterwards.`)) return;
+    if (pending > 0 && !window.confirm(`${pending} push(es) are still finishing. Restart for the update anyway? They will resume afterwards.`)) return;
     try {
       await updater.install();
     } catch (e) {
@@ -191,7 +191,7 @@ export default function App() {
         ))}
         {signedIn && !status?.refsAvailable && (
           <p className="nav-note">
-            Reference checking is off, so check-ins can't add an assembly's parts for you.{" "}
+            Reference checking is off, so pushing changes can't add an assembly's parts for you.{" "}
             {status?.refsEnabled === false
               ? "You turned it off in Settings."
               : "It runs on Windows with SolidWorks installed."}
@@ -229,7 +229,7 @@ function SyncState({
         <Spinner size={12} label="Syncing" /> Syncing…
       </span>
     );
-  if (pending > 0) return <span className="pill pill-warn">{pending} check-in(s) waiting to finish</span>;
+  if (pending > 0) return <span className="pill pill-warn">{pending} push(es) waiting to finish</span>;
   if (!last) return null;
   if (last.error)
     return (

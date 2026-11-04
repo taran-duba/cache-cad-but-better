@@ -21,6 +21,10 @@ public sealed class SolidWorksApiReferenceReader(Func<ISolidWorksSession> connec
 {
     // RPC_E_CALL_REJECTED and RPC_E_SERVERCALL_RETRYLATER: SolidWorks is busy (loading, rebuilding).
     private static readonly int[] BusyHResults = [unchecked((int)0x80010001), unchecked((int)0x8001010A)];
+    // The SolidWorks process is gone (closed, crashed, disconnected): the session can't be reused.
+    private static readonly int[] DisconnectedHResults =
+        [unchecked((int)0x80010108), unchecked((int)0x80010007), unchecked((int)0x80010012),
+         unchecked((int)0x800706BA), unchecked((int)0x800706BE), unchecked((int)0x800706BF)];
     private const int BusyRetries = 5;
     private static readonly TimeSpan BusyDelay = TimeSpan.FromMilliseconds(500);
 
@@ -85,14 +89,22 @@ public sealed class SolidWorksApiReferenceReader(Func<ISolidWorksSession> connec
             {
                 Thread.Sleep(BusyDelay);
             }
-            catch (System.Runtime.InteropServices.COMException e)
+            catch (System.Runtime.InteropServices.COMException e) when (DisconnectedHResults.Contains(e.HResult))
             {
                 // SolidWorks closed or crashed since the last request: reconnect on the next one.
-                log.WriteLine($"swrefs: SolidWorks call failed: 0x{e.HResult:X8} {e.Message}");
+                log.WriteLine($"swrefs: SolidWorks went away: 0x{e.HResult:X8} {e.Message}");
                 _session?.Dispose();
                 _session = null;
                 throw new ReferenceReaderException(ErrorCodes.OpenFailed,
-                    $"SolidWorks could not read {path} (0x{e.HResult:X8}); is it busy or closed? Try again.");
+                    $"SolidWorks closed while reading {path} (0x{e.HResult:X8}). Try again.");
+            }
+            catch (System.Runtime.InteropServices.COMException e)
+            {
+                // SolidWorks is alive but refused this call. Keep the session: tearing it down would
+                // close a hidden SolidWorks that took a minute to start, for nothing.
+                log.WriteLine($"swrefs: SolidWorks call failed: 0x{e.HResult:X8} {e.Message}");
+                throw new ReferenceReaderException(ErrorCodes.OpenFailed,
+                    $"SolidWorks could not read {path} (0x{e.HResult:X8}: {e.Message.Trim()}).");
             }
         }
     }

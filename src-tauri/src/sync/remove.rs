@@ -52,7 +52,7 @@ impl<D: DriveApi> Vault<D> {
             }
         }
         if f.prop(props::PENDING_CHANGESET).is_some() {
-            return Err(Error::Conflict(format!("{} is being checked in right now", f.name)));
+            return Err(Error::Conflict(format!("{} is being pushed right now", f.name)));
         }
         let rel = self.paths()?.path(file_id).map(PathBuf::from);
         if let Some(rel) = &rel {

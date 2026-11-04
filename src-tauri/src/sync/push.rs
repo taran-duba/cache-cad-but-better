@@ -72,7 +72,7 @@ fn upload_order(rel: &std::path::Path) -> u8 {
 impl<D: DriveApi> Vault<D> {
     pub async fn push(&self, req: PushRequest) -> Result<PushOutcome> {
         if req.files.is_empty() && req.new_files.is_empty() {
-            return Err(Error::Conflict("nothing to check in".into()));
+            return Err(Error::Conflict("nothing to push".into()));
         }
         let map = self.paths()?;
         let mut items = Vec::new();

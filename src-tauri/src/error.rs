@@ -18,7 +18,7 @@ pub enum Error {
     NotCheckedOut(String),
     #[error("conflict: {0}")]
     Conflict(String),
-    #[error("check-in blocked: {0} problem(s) found")]
+    #[error("push blocked: {0} problem(s) found")]
     Validation(usize),
     #[error("reference reader: {0}")]
     Refs(String),

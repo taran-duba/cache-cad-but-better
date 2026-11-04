@@ -10,7 +10,7 @@ const STATUS_LABEL: Record<Entry["status"], [string, string]> = {
   outdated: ["Update waiting", "pill-info"],
   not_synced: ["Not on this PC", "pill-dim"],
   modified: ["Edited", "pill-warn"],
-  pending: ["Being checked in", "pill-info"],
+  pending: ["Being pushed", "pill-info"],
 };
 
 interface Crumb {
@@ -209,7 +209,7 @@ export function VaultView({
                   {!e.isFolder && e.selected && e.status === "modified" && !e.mine ? (
                     <span
                       className="pill pill-bad"
-                      title="These edits can't be checked in because you don't have the file checked out (maybe a teammate took over the lock). Use File › Save As in SolidWorks to keep them under a new name."
+                      title="These edits can't be pushed because you don't have the file checked out (maybe a teammate took over the lock). Use File › Save As in SolidWorks to keep them under a new name."
                     >
                       Edited, not checked out
                     </span>
@@ -403,7 +403,7 @@ function LockHelp({
   const [sure, setSure] = useState(false);
   const lock = entry.lock!;
   const name = who(lock.owner, lock.owner_name);
-  const message = `Hey ${name}, can you check in ${entry.name} in Permafrost (or Undo check-out if you didn't change it)? I need to edit it.`;
+  const message = `Hey ${name}, can you push your changes to ${entry.name} in Permafrost (or Undo check-out if you didn't change it)? I need to edit it.`;
 
   const copy = async () => {
     try {
@@ -430,7 +430,7 @@ function LockHelp({
       </div>
       <ol>
         <li>
-          <strong>Ask {name} to check it in.</strong> If they didn't change anything, they can click{" "}
+          <strong>Ask {name} to push their changes.</strong> If they didn't change anything, they can click{" "}
           <em>Undo check-out</em>. When they do, the lock disappears here within about 15 seconds.{" "}
           <button className="link" onClick={copy}>
             Copy a message to send them
@@ -438,7 +438,7 @@ function LockHelp({
         </li>
         <li>
           <strong>Can't reach them?</strong> (They left the shop, their laptop is off, they graduated…) You can take the
-          file over. You'll get the latest checked-in version.
+          file over. You'll get the latest pushed version.
           {!sure ? (
             <div className="row">
               <button className="btn btn-small" disabled={busy} onClick={() => setSure(true)}>
@@ -447,7 +447,7 @@ function LockHelp({
             </div>
           ) : (
             <div className="notice notice-warn lock-help-warn">
-              Anything {name} changed but didn't check in stays only on their computer and won't be in the team's
+              Anything {name} changed but didn't push stays only on their computer and won't be in the team's
               version. Their Permafrost keeps it as a separate copy so it isn't lost, but someone has to redo or merge it.
               <div className="row">
                 <button className="btn btn-small btn-danger" disabled={busy} onClick={onTakeOver}>

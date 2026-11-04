@@ -52,7 +52,7 @@ function Welcome({ status, onChanged, toasts }: { status: Status; onChanged: () 
     <>
       {status.signInExpired && (
         <p className="notice notice-warn">
-          Your Google sign-in expired or was removed. Sign in again — your files and any unfinished check-in are still
+          Your Google sign-in expired or was removed. Sign in again — your files and any unfinished push are still
           here.
         </p>
       )}

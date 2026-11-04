@@ -104,7 +104,7 @@ export function ChangesView({
         keepLocked,
         allowDuplicateNames: allowDupes,
       });
-      toasts.info(`Checked in ${out.files} file(s). Teammates get them all together.`);
+      toasts.info(`Pushed ${out.files} file(s). Teammates get them all together.`);
       setMessage("");
       setPreview(null);
       onChanged();
@@ -172,7 +172,7 @@ export function ChangesView({
             disabled={busy || reviewing || (picked.size === 0 && pickedNew.size === 0)}
           >
             {reviewing && <Spinner size={12} label="Checking" />}
-            {reviewing ? "Checking your files…" : "Review check-in"}
+            {reviewing ? "Checking your files…" : "Review changes to push"}
           </button>
         </div>
       )}
@@ -185,7 +185,7 @@ export function ChangesView({
               assemblies depend on won't be added automatically.
             </p>
           )}
-          <h3>Will check in</h3>
+          <h3>Will push</h3>
           <ul className="plain">
             {preview.plan.files.map((id) => (
               <li key={id}>{nameOf(id)}</li>
@@ -204,7 +204,7 @@ export function ChangesView({
 
           {preview.plan.problems.length > 0 && (
             <>
-              <h3>Fix before checking in</h3>
+              <h3>Fix before pushing</h3>
               <ul className="problems">
                 {preview.plan.problems.map((p, i) => {
                   const d = describe(p);
@@ -220,7 +220,7 @@ export function ChangesView({
               {hasDupes && (
                 <label className="check">
                   <input type="checkbox" checked={allowDupes} onChange={(e) => setAllowDupes(e.target.checked)} />
-                  Check in anyway with duplicate names (I've checked the right files are referenced)
+                  Push anyway with duplicate names (I've checked the right files are referenced)
                 </label>
               )}
             </>
@@ -245,13 +245,13 @@ export function ChangesView({
               onClick={checkIn}
               disabled={busy || blocking.length > 0 || message.trim() === ""}
             >
-              {busy && <Spinner size={12} label="Checking in" />}
-              {busy ? "Checking in…" : "Check in"}
+              {busy && <Spinner size={12} label="Pushing" />}
+              {busy ? "Pushing…" : "Push changes"}
             </button>
           </div>
           {busy && (
             <p className="small muted fade-in">
-              Uploading your files and recording the check-in. Keep Permafrost open until this finishes.
+              Uploading your files and recording the push. Keep Permafrost open until this finishes.
             </p>
           )}
         </div>

@@ -126,6 +126,23 @@ public class SolidWorksApiReaderTests
     }
 
     [Fact]
+    public void RefusedCall_KeepsTheSession_AndReportsTheHResult()
+    {
+        using var file = TempFile("A.SLDASM");
+        var connects = 0;
+        var session = new FakeSession(_ => throw new COMException("Element not found", unchecked((int)0x8002802B)));
+        using var reader = new SolidWorksApiReferenceReader(() => { connects++; return session; }, TextWriter.Null);
+
+        var e = Assert.Throws<ReferenceReaderException>(() => reader.GetReferences(file.Path));
+        Assert.Equal(ErrorCodes.OpenFailed, e.Code);
+        Assert.Contains("0x8002802B", e.Message);
+        Assert.False(session.Disposed);
+
+        Assert.Throws<ReferenceReaderException>(() => reader.GetReferences(file.Path));
+        Assert.Equal(1, connects);
+    }
+
+    [Fact]
     public void Dispose_ClosesTheSession()
     {
         using var file = TempFile("A.SLDASM");

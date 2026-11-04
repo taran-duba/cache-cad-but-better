@@ -52,9 +52,32 @@ public sealed class SolidWorksComSession : ISolidWorksSession
         return new SolidWorksComSession(app, startedByUs: true, log);
     }
 
-    public object? GetDocumentDependencies(string path) =>
-        ((dynamic)(_app ?? throw new ObjectDisposedException(nameof(SolidWorksComSession))))
-            .GetDocumentDependencies2(path, false, false, false);
+    // TYPE_E_ELEMENTNOTFOUND / DISP_E_UNKNOWNNAME: the dynamic binder couldn't resolve the member
+    // through SolidWorks' type information (seen with an unregistered or mismatched type library).
+    private static readonly int[] BinderFailures = [unchecked((int)0x8002802B), unchecked((int)0x80020006)];
+
+    public object? GetDocumentDependencies(string path)
+    {
+        var app = _app ?? throw new ObjectDisposedException(nameof(SolidWorksComSession));
+        try
+        {
+            return ((dynamic)app).GetDocumentDependencies2(path, false, false, false);
+        }
+        catch (COMException e) when (BinderFailures.Contains(e.HResult))
+        {
+            // Call IDispatch by name directly, which doesn't depend on the type library.
+            _log.WriteLine($"swrefs: dynamic call failed (0x{e.HResult:X8}); retrying through IDispatch");
+            try
+            {
+                return app.GetType().InvokeMember("GetDocumentDependencies2",
+                    System.Reflection.BindingFlags.InvokeMethod, null, app, [path, false, false, false]);
+            }
+            catch (System.Reflection.TargetInvocationException t) when (t.InnerException is COMException inner)
+            {
+                throw inner;
+            }
+        }
+    }
 
     public void Dispose()
     {
