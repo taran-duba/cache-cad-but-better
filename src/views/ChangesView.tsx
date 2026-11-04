@@ -22,8 +22,8 @@ function describe(p: Problem): { title: string; detail: string; fix: string } {
     case "duplicate_name":
       return {
         title: "Same file name in several folders",
-        detail: `${p.from} uses ${p.name}, and ${p.copies.length} files share that name: ${p.copies.join(", ")}. SolidWorks may load the wrong one, which breaks mates.`,
-        fix: "Rename one copy (from inside SolidWorks) so every file name is unique.",
+        detail: `${p.from} points at a ${p.name} that isn't in the vault, and ${p.copies.length} files with that name are: ${p.copies.join(", ")}. SolidWorks may load one of those instead, which breaks mates.`,
+        fix: "Point the assembly at the right copy (SolidWorks: File › Find References, or Replace Components).",
       };
     case "modified_not_checked_out":
       return {

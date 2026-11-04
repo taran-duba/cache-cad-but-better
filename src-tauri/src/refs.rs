@@ -283,13 +283,6 @@ impl<D: DriveApi> Vault<D> {
                     });
                     continue;
                 };
-                if let Some(ids) = dups.get(&r.file_name.to_lowercase()) {
-                    plan.problems.push(Problem::DuplicateName {
-                        from: rel.clone(),
-                        name: r.file_name.clone(),
-                        copies: ids.iter().filter_map(|i| map.path(i).map(Path::to_path_buf)).collect(),
-                    });
-                }
                 match map.id_for(&dep_rel) {
                     Some(dep_id) => {
                         let dep_id = dep_id.to_string();
@@ -318,10 +311,19 @@ impl<D: DriveApi> Vault<D> {
                             plan.auto_included.push(dep_rel.clone());
                         }
                     }
-                    None => plan.problems.push(Problem::MissingReference {
-                        from: rel.clone(),
-                        reference: r.path.clone(),
-                    }),
+                    None => {
+                        // The exact stored path isn't in the vault. If the same name lives in other
+                        // folders, SolidWorks may pick one of those by name instead. (A reference whose
+                        // exact path is found is unambiguous, so duplicate names alone are fine.)
+                        if let Some(ids) = dups.get(&r.file_name.to_lowercase()) {
+                            plan.problems.push(Problem::DuplicateName {
+                                from: rel.clone(),
+                                name: r.file_name.clone(),
+                                copies: ids.iter().filter_map(|i| map.path(i).map(Path::to_path_buf)).collect(),
+                            });
+                        }
+                        plan.problems.push(Problem::MissingReference { from: rel.clone(), reference: r.path.clone() });
+                    }
                 }
                 queue.push(dep_rel);
             }
@@ -421,6 +423,7 @@ mod tests {
                 r(&v.root.join("Arm/NewBracket.SLDPRT")),
                 r(&v.root.join("Arm/Spacer.SLDPRT")),
                 r(&v.root.join("Arm/Gone.SLDPRT")),
+                r(&v.root.join("Elsewhere/Spacer.SLDPRT")),
                 r(Path::new("C:\\Users\\alex\\Desktop\\Gear.SLDPRT")),
             ],
         )]));
@@ -441,7 +444,8 @@ mod tests {
                 Problem::ModifiedNotCheckedOut { .. } => "not_checked_out",
             })
             .collect();
-        assert_eq!(kinds.len(), 4, "{:?}", plan.problems);
+        assert_eq!(kinds.len(), 5, "{:?}", plan.problems);
+        assert_eq!(kinds.iter().filter(|k| **k == "duplicate").count(), 1, "exact-path Spacer is not flagged");
         for k in ["missing", "outside", "duplicate", "not_checked_out"] {
             assert!(kinds.contains(&k), "{k} in {kinds:?}");
         }
@@ -450,6 +454,6 @@ mod tests {
         {
             assert_eq!(in_vault_match.as_deref(), Some(Path::new("Arm/Gear.SLDPRT")));
         }
-        assert_eq!(v.index.refs(&asm).unwrap().len(), 6, "reference graph recorded");
+        assert_eq!(v.index.refs(&asm).unwrap().len(), 7, "reference graph recorded");
     }
 }
