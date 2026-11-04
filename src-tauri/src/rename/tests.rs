@@ -112,7 +112,7 @@ async fn moving_a_folder_updates_documents_inside_and_outside_it() {
     let rep = av.rename(&reader(av), Some(&w), &t.arm, Path::new("Robot/Arm")).await.unwrap();
 
     // Arm.SLDASM (moved itself) uses the gear; Bot uses both.
-    let mut updated: Vec<_> = rep.updated.iter().map(|p| p.to_string_lossy().to_string()).collect();
+    let mut updated = rep.updated.clone();
     updated.sort();
     assert_eq!(updated, ["Bot.SLDASM", "Robot/Arm/Arm.SLDASM"]);
     assert_eq!(w.calls.lock().unwrap().len(), 3);
@@ -147,7 +147,7 @@ async fn a_failed_rewrite_puts_everything_back() {
     assert!(av.rename(&reader(av), Some(&w), &t.gear, Path::new("Arm/Spur.SLDPRT")).await.is_err());
 
     assert!(av.root.join("Arm/Gear.SLDPRT").exists() && !av.root.join("Arm/Spur.SLDPRT").exists());
-    assert_eq!(av.index.local(&t.gear).unwrap().unwrap().rel_path, "Arm/Gear.SLDPRT");
+    assert_eq!(Path::new(&av.index.local(&t.gear).unwrap().unwrap().rel_path), Path::new("Arm/Gear.SLDPRT"));
     assert_eq!(t.drive.get_file(&t.gear).await.unwrap().name, "Gear.SLDPRT");
     for id in [&t.gear, &t.asm, &t.bot] {
         assert!(!t.drive.get_file(id).await.unwrap().lock().is_some(), "lock released");

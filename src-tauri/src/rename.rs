@@ -19,14 +19,14 @@ use crate::index::PathMap;
 use crate::names::{cad_kind, sanitize, CadKind};
 use crate::refs::{resolve_ref, RefReader, RefWriter, Resolved};
 use crate::sync::push::PushRequest;
-use crate::sync::{localfs, Vault};
+use crate::sync::{localfs, shown, Vault};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameReport {
-    pub new_path: PathBuf,
+    pub new_path: String,
     /// Assemblies and drawings updated to use the new path.
-    pub updated: Vec<PathBuf>,
+    pub updated: Vec<String>,
     pub changeset: String,
 }
 
@@ -65,6 +65,9 @@ impl<D: DriveApi> Vault<D> {
         id: &str,
         new_rel: &Path,
     ) -> Result<RenameReport> {
+        // Native separators, so "Robot/Arm" typed on Windows matches paths built from Drive names.
+        let new_rel: PathBuf = new_rel.components().collect();
+        let new_rel = new_rel.as_path();
         let all = self.index.all_files()?;
         let map = PathMap::build(&self.root_id, &all);
         let by_id: HashMap<&str, &RemoteFile> = all.iter().map(|f| (f.id.as_str(), f)).collect();
@@ -112,7 +115,7 @@ impl<D: DriveApi> Vault<D> {
         }
 
         let verb = if old_rel.parent() == new_rel.parent() { "Renamed" } else { "Moved" };
-        let message = format!("{verb} {} to {}", old_rel.display(), new_rel.display());
+        let message = format!("{verb} {} to {}", shown(&old_rel), shown(new_rel));
         let journals_before = self.index.journal()?.len();
         let mut locked_now = Vec::new();
         let mut renamed_locally = false;
@@ -121,8 +124,8 @@ impl<D: DriveApi> Vault<D> {
             .await;
         match result {
             Ok(changeset) => Ok(RenameReport {
-                new_path: new_rel.to_path_buf(),
-                updated: users.iter().map(|u| relocate(&u.rel, &old_rel, new_rel)).collect(),
+                new_path: shown(new_rel),
+                updated: users.iter().map(|u| shown(&relocate(&u.rel, &old_rel, new_rel))).collect(),
                 changeset,
             }),
             Err(e) if self.index.journal()?.len() > journals_before => Err(Error::Conflict(format!(
@@ -136,7 +139,7 @@ impl<D: DriveApi> Vault<D> {
     }
 
     fn check_new_path(&self, f: &RemoteFile, old_rel: &Path, new_rel: &Path, map: &PathMap) -> Result<()> {
-        let bad = |why: &str| Err(Error::Conflict(format!("can't use {}: {why}", new_rel.display())));
+        let bad = |why: &str| Err(Error::Conflict(format!("can't use {}: {why}", shown(new_rel))));
         if new_rel.as_os_str().is_empty() || !new_rel.components().all(|c| matches!(c, Component::Normal(_))) {
             return bad("give a path inside the CAD folder, like Arm/Gear.SLDPRT");
         }
@@ -166,7 +169,7 @@ impl<D: DriveApi> Vault<D> {
     fn check_free(&self, f: &RemoteFile, rel: &Path, blocked: &mut Vec<String>) -> Result<()> {
         if let Some(l) = f.lock() {
             if !self.i_hold_lock(f) {
-                blocked.push(format!("{} is checked out by {}", rel.display(), l.display_owner()));
+                blocked.push(format!("{} is checked out by {}", shown(rel), l.display_owner()));
                 return Ok(());
             }
         }
@@ -175,9 +178,9 @@ impl<D: DriveApi> Vault<D> {
             if abs.exists() {
                 let fp = l.synced_size.zip(l.synced_mtime);
                 if localfs::is_modified(&abs, l.synced_md5.as_deref(), fp)? {
-                    blocked.push(format!("{} has edits that aren't pushed (push or undo them first)", rel.display()));
+                    blocked.push(format!("{} has edits that aren't pushed (push or undo them first)", shown(rel)));
                 } else if localfs::is_open_in_cad(&abs) {
-                    blocked.push(format!("{} is open in SolidWorks (close it first)", rel.display()));
+                    blocked.push(format!("{} is open in SolidWorks (close it first)", shown(rel)));
                 }
             }
         }
@@ -245,7 +248,7 @@ impl<D: DriveApi> Vault<D> {
         let refs = read.map_err(|e| {
             Error::Refs(format!(
                 "couldn't read what {} uses ({e}), so the rename was stopped before anything changed",
-                rel.display()
+                shown(rel)
             ))
         })?;
         let paths: Vec<String> = refs.into_iter().filter(|r| !r.is_virtual).map(|r| r.path).collect();

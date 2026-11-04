@@ -10,7 +10,7 @@ use crate::drive::DriveApi;
 use crate::error::{Error, Result};
 use crate::names::{cad_kind, CadKind};
 use crate::refs::{resolve_ref, RefReader, Resolved};
-use crate::sync::Vault;
+use crate::sync::{shown, Vault};
 
 /// How many check-outs run at once. Each one waits a moment to confirm its lock, so this is
 /// most of the speed-up on big folders.
@@ -62,7 +62,7 @@ impl<D: DriveApi> Vault<D> {
 
             let mut next = Vec::new();
             for (id, r) in results {
-                let name = map.path(&id).map_or_else(|| id.clone(), |p| p.display().to_string());
+                let name = map.path(&id).map_or_else(|| id.clone(), shown);
                 match r {
                     Ok(newly) => {
                         if newly {

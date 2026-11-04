@@ -76,7 +76,7 @@ pub async fn rename_item(app: AppHandle, state: State<'_, AppState>, file_id: St
     };
     drop(guard);
     match &r {
-        Ok(rep) => tracing::info!(file = %file_id, to = %rep.new_path.display(), updated = rep.updated.len(), "renamed"),
+        Ok(rep) => tracing::info!(file = %file_id, to = %rep.new_path, updated = rep.updated.len(), "renamed"),
         Err(e) => tracing::warn!(%e, file = %file_id, "rename failed"),
     }
     let r = state.check_expired(&app, r).await;

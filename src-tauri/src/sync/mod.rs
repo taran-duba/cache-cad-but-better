@@ -39,6 +39,11 @@ pub struct Vault<D> {
     pub lock_verify_delay: Duration,
 }
 
+/// A vault-relative path as shown to people: always `/`, on every OS.
+pub fn shown(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
 impl<D: DriveApi> Vault<D> {
     pub fn paths(&self) -> Result<PathMap> {
         Ok(PathMap::build(&self.root_id, &self.index.all_files()?))

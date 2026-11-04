@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use super::push::PushRequest;
-use super::{localfs, Vault};
+use super::{localfs, shown, Vault};
 use crate::drive::DriveApi;
 use crate::error::{Error, Result};
 
@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 #[serde(rename_all = "camelCase")]
 pub struct RestoreReport {
     pub changeset: String,
-    pub restored: Vec<PathBuf>,
+    pub restored: Vec<String>,
     /// Files that were already at that version.
     pub unchanged: usize,
 }
@@ -57,18 +57,18 @@ impl<D: DriveApi> Vault<D> {
             }
             if let Some(l) = f.lock() {
                 if !self.i_hold_lock(&f) {
-                    blocked.push(format!("{} is checked out by {}", rel.display(), l.display_owner()));
+                    blocked.push(format!("{} is checked out by {}", shown(&rel), l.display_owner()));
                     continue;
                 }
             }
             if let Some(l) = self.index.local(id)? {
                 let abs = self.abs(l.rel_path.as_ref());
                 if abs.exists() && localfs::is_modified(&abs, l.synced_md5.as_deref(), l.synced_size.zip(l.synced_mtime))? {
-                    blocked.push(format!("{} has edits that aren't pushed (push or undo them first)", rel.display()));
+                    blocked.push(format!("{} has edits that aren't pushed (push or undo them first)", shown(&rel)));
                     continue;
                 }
                 if localfs::is_open_in_cad(&abs) {
-                    blocked.push(format!("{} is open in SolidWorks (close it first)", rel.display()));
+                    blocked.push(format!("{} is open in SolidWorks (close it first)", shown(&rel)));
                     continue;
                 }
             }
@@ -101,7 +101,7 @@ impl<D: DriveApi> Vault<D> {
             let journals_before = self.index.journal()?.len();
             let mut locked_now = Vec::new();
             match self.swap_in_and_push(&changed, &mut locked_now, message).await {
-                Ok(changeset) => Ok(RestoreReport { changeset, restored: changed.into_iter().map(|t| t.rel).collect(), unchanged }),
+                Ok(changeset) => Ok(RestoreReport { changeset, restored: changed.iter().map(|t| shown(&t.rel)).collect(), unchanged }),
                 Err(e) if self.index.journal()?.len() > journals_before => Err(Error::Conflict(format!(
                     "the restore started but didn't finish ({e}). Permafrost finishes it automatically when it can reach Drive."
                 ))),
@@ -205,7 +205,7 @@ mod tests {
         assert!(e.to_string().contains("checked out by"), "{e}");
         assert_eq!(drive.content(&gear).unwrap(), b"gear v2", "nothing restored when one file is blocked");
         let rep = av.restore(&oops.id, Some(std::slice::from_ref(&gear))).await.unwrap();
-        assert_eq!(rep.restored, [PathBuf::from("Gear.SLDPRT")]);
+        assert_eq!(rep.restored, ["Gear.SLDPRT"]);
         assert_eq!(drive.content(&gear).unwrap(), b"gear v3");
     }
 }
