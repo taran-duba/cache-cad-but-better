@@ -22,6 +22,18 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void Replace_NeedsAllFields_AndReportsReadersThatCantWrite()
+    {
+        var bad = _handler.Handle(new { id = "x1", op = "replace", path = @"C:\Vault\Arm\Arm.SLDASM" });
+        Assert.False(bad.GetProperty("ok").GetBoolean());
+        Assert.Equal(ErrorCodes.BadRequest, bad.GetProperty("code").GetString());
+
+        var r = _handler.Handle(new { id = "x2", op = "replace", path = @"C:\Vault\Arm\Arm.SLDASM", old = @"C:\Vault\A.SLDPRT", @new = @"C:\Vault\B.SLDPRT" });
+        Assert.False(r.GetProperty("ok").GetBoolean());
+        Assert.Equal(ErrorCodes.Unsupported, r.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public void Refs_ReturnsDirectRefsFromFake()
     {
         var r = _handler.Handle(new { id = "r1", op = "refs", path = @"C:\Vault\Arm\Arm.SLDASM" });

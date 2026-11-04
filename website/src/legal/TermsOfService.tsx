@@ -7,7 +7,7 @@ const TOC: TocItem[] = [
   { id: "accounts", label: "Your Google account" },
   { id: "use", label: "Acceptable use" },
   { id: "content", label: "Your files" },
-  { id: "backups", label: "Locks, check-ins and backups" },
+  { id: "backups", label: "Locks, pushes and backups" },
   { id: "third-party", label: "Other companies' products" },
   { id: "source", label: "Source code" },
   { id: "warranty", label: "No warranty" },
@@ -50,7 +50,7 @@ export function TermsOfService() {
       <Section id="service" title="What Permafrost is">
         <p>
           Permafrost is a free desktop app that syncs SolidWorks files between your computer and a Google Drive shared
-          drive or folder, with check-out locks and check-ins to help a team avoid overwriting each other's work. It runs
+          drive or folder, with check-out locks and pushes to help a team avoid overwriting each other's work. It runs
           on your computer and connects directly to Google. We don't operate a server that stores or processes your
           files.
         </p>
@@ -100,7 +100,7 @@ export function TermsOfService() {
         </p>
       </Section>
 
-      <Section id="backups" title="Locks, check-ins and backups">
+      <Section id="backups" title="Locks, pushes and backups">
         <p>
           Check-out locks, read-only files and reference checks are there to help your team avoid mistakes. They depend on
           Google Drive, SolidWorks and your computers working as expected, so they can't guarantee that files will never

@@ -92,6 +92,20 @@ impl<D: DriveApi> Vault<D> {
         localfs::is_modified(&self.abs(l.rel_path.as_ref()), l.synced_md5.as_deref(), fp)
     }
 
+    /// The uncommitted changeset that is moving this file, or a folder it's in, if any.
+    fn uncommitted_move(&self, id: &str, by_id: &HashMap<&str, &RemoteFile>) -> Result<Option<String>> {
+        let mut cur = by_id.get(id).copied();
+        while let Some(f) = cur {
+            if let Some(cs) = f.prop(props::PENDING_CHANGESET) {
+                if !self.index.has_changeset(cs)? {
+                    return Ok(Some(cs.to_string()));
+                }
+            }
+            cur = f.parent.as_deref().and_then(|p| by_id.get(p).copied());
+        }
+        Ok(None)
+    }
+
     pub fn plan_pull(&self) -> Result<PullPlan> {
         let all = self.index.all_files()?;
         let map = PathMap::build(&self.root_id, &all);
@@ -103,7 +117,10 @@ impl<D: DriveApi> Vault<D> {
 
         // Files we have that moved, were removed, or were deselected.
         for l in locals.values() {
-            let wanted = map.contains(&l.file_id) && is_selected(&l.file_id, &by_id, &sel);
+            // Files I have checked out stay even if their folder isn't ticked (e.g. parts checked
+            // out along with an assembly elsewhere).
+            let mine = by_id.get(l.file_id.as_str()).is_some_and(|f| self.i_hold_lock(f));
+            let wanted = map.contains(&l.file_id) && (mine || is_selected(&l.file_id, &by_id, &sel));
             let old = PathBuf::from(&l.rel_path);
             if !wanted {
                 if self.is_locally_modified(l)? {
@@ -117,7 +134,9 @@ impl<D: DriveApi> Vault<D> {
             }
             let new = map.path(&l.file_id).expect("contains checked").to_path_buf();
             if new != old {
-                if !self.abs(&old).exists() {
+                if let Some(cs) = self.uncommitted_move(&l.file_id, &by_id)? {
+                    plan.deferred.push(Deferred::Pending { file_id: l.file_id.clone(), changeset: cs });
+                } else if !self.abs(&old).exists() {
                     // Deleted locally; it's downloaded to the new path below.
                 } else if localfs::is_open_in_cad(&self.abs(&old)) {
                     plan.deferred.push(Deferred::Open { file_id: l.file_id.clone() });

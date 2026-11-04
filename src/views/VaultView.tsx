@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { ago, api, Entry, errorText, who } from "../api";
+import { ago, api, CheckOutReport, Entry, errorText, who } from "../api";
 import { Skeleton, Spinner } from "../Spinner";
 import type { ToastApi } from "../Toasts";
 
@@ -16,6 +16,21 @@ const STATUS_LABEL: Record<Entry["status"], [string, string]> = {
 interface Crumb {
   id: string | null;
   name: string;
+  /** The folder's name on this PC (differs when Windows doesn't allow the Drive name). */
+  localName: string;
+}
+
+/** One toast for any check-out: what was checked out, what a teammate has, what failed. */
+function checkOutMessage(r: CheckOutReport, lead: string): [string, boolean] {
+  let msg = lead;
+  if (r.depsCheckedOut) msg += `, including ${r.depsCheckedOut} part(s) your assemblies use`;
+  msg += ".";
+  if (r.lockedByOthers.length) {
+    const shown = r.lockedByOthers.slice(0, 5).join(", ");
+    msg += ` Already checked out by a teammate: ${shown}${r.lockedByOthers.length > 5 ? ` and ${r.lockedByOthers.length - 5} more` : ""}.`;
+  }
+  if (r.failed) msg += ` ${r.failed} failed (${r.firstError}).`;
+  return [msg, r.failed > 0 || r.lockedByOthers.length > 0];
 }
 
 export function VaultView({
@@ -30,7 +45,8 @@ export function VaultView({
   /** A sync pass is running (so an empty list may just mean it hasn't arrived yet). */
   syncing: boolean;
 }) {
-  const [path, setPath] = useState<Crumb[]>([{ id: null, name: "CAD folder" }]);
+  const [path, setPath] = useState<Crumb[]>([{ id: null, name: "CAD folder", localName: "" }]);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -125,10 +141,8 @@ export function VaultView({
           onClick={() =>
             act("select-all", async () => {
               const r = await api.checkOutAll(current.id);
-              const parts = [`Checked out ${r.checkedOut} file${r.checkedOut === 1 ? "" : "s"}.`];
-              if (r.lockedByOthers) parts.push(`${r.lockedByOthers} already checked out by a teammate.`);
-              if (r.failed) parts.push(`${r.failed} failed (${r.firstError}).`);
-              (r.failed ? toasts.warn : toasts.info)(parts.join(" "));
+              const [msg, warn] = checkOutMessage(r, `Checked out ${r.checkedOut} file(s)`);
+              (warn ? toasts.warn : toasts.info)(msg);
             })
           }
         >
@@ -188,7 +202,10 @@ export function VaultView({
                 </td>
                 <td>
                   {e.isFolder ? (
-                    <button className="link name" onClick={() => setPath([...path, { id: e.id, name: e.name }])}>
+                    <button
+                      className="link name"
+                      onClick={() => setPath([...path, { id: e.id, name: e.name, localName: e.localName ?? e.name }])}
+                    >
                       <span className="icon">▸</span>
                       {e.name}
                     </button>
@@ -260,13 +277,8 @@ export function VaultView({
                       onClick={() =>
                         act(e.id, async () => {
                           const r = await api.checkOutWithRefs(e.id);
-                          const parts = [`Checked out ${e.name}`];
-                          if (r.depsCheckedOut) parts.push(`and ${r.depsCheckedOut} referenced file${r.depsCheckedOut === 1 ? "" : "s"}`);
-                          let msg = parts.join(" ") + ".";
-                          if (r.depsLockedByOthers.length)
-                            msg += ` Already checked out by a teammate: ${r.depsLockedByOthers.join(", ")}.`;
-                          if (r.depsFailed) msg += ` ${r.depsFailed} reference(s) failed (${r.firstError}).`;
-                          (r.depsFailed || r.depsLockedByOthers.length ? toasts.warn : toasts.info)(msg);
+                          const [msg, warn] = checkOutMessage(r, `Checked out ${e.name}`);
+                          (warn ? toasts.warn : toasts.info)(msg);
                         })
                       }
                     >
@@ -293,6 +305,22 @@ export function VaultView({
                       onClick={() => setHelpFor(helpFor === e.id ? null : e.id)}
                     >
                       Need it?
+                    </button>
+                  )}
+                  {(e.isFolder || !e.lock || e.mine) && confirming?.id !== e.id && (
+                    <button
+                      className="btn btn-small btn-ghost"
+                      disabled={busy !== null}
+                      title="Rename or move it. Assemblies and drawings that use it are updated for everyone."
+                      onClick={() =>
+                        setRenaming(
+                          renaming?.id === e.id
+                            ? null
+                            : { id: e.id, value: [...path.slice(1).map((c) => c.localName), e.localName ?? e.name].join("/") },
+                        )
+                      }
+                    >
+                      Rename
                     </button>
                   )}
                   {!e.isFolder && (!e.lock || e.mine) && confirming?.id !== e.id && (
@@ -347,6 +375,49 @@ export function VaultView({
                   )}
                 </td>
               </tr>
+              {renaming?.id === e.id && (
+                <tr className="help-row">
+                  <td colSpan={6}>
+                    <form
+                      className="rename"
+                      onSubmit={(ev) => {
+                        ev.preventDefault();
+                        const target = renaming.value.trim();
+                        act(e.id, async () => {
+                          const r = await api.renameItem(e.id, target);
+                          setRenaming(null);
+                          toasts.info(
+                            `${e.name} is now ${r.newPath}.` +
+                              (r.updated.length ? ` Updated and pushed ${r.updated.length} assembly/drawing file(s) that use it.` : ""),
+                          );
+                        });
+                      }}
+                    >
+                      <label className="small">
+                        New name or location, inside the CAD folder (use / for folders):
+                        <input
+                          className="search rename-input"
+                          value={renaming.value}
+                          autoFocus
+                          onChange={(ev) => setRenaming({ id: e.id, value: ev.target.value })}
+                          aria-label={`New path for ${e.name}`}
+                        />
+                      </label>
+                      <button className="btn btn-small" type="submit" disabled={busy !== null || !renaming.value.trim()}>
+                        Rename / move
+                      </button>
+                      <button className="btn btn-small btn-ghost" type="button" onClick={() => setRenaming(null)}>
+                        Cancel
+                      </button>
+                      <p className="muted small">
+                        Permafrost checks out every assembly and drawing that uses {e.isFolder ? "the files in it" : "it"}, points
+                        them at the new location through SolidWorks, and pushes everything together, so nothing breaks for anyone.
+                        Close the files in SolidWorks first. Don't rename CAD files in Explorer or on the Drive website.
+                      </p>
+                    </form>
+                  </td>
+                </tr>
+              )}
               {helpFor === e.id && e.lock && !e.mine && (
                 <tr className="help-row">
                   <td colSpan={6}>

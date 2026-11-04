@@ -10,6 +10,13 @@ public interface ISolidWorksSession : IDisposable
     /// the file's direct references, as the raw array SolidWorks returns.
     /// </summary>
     object? GetDocumentDependencies(string path);
+
+    /// <summary>
+    /// <c>ISldWorks.ReplaceReferencedDocument(referencing, referenced, newReference)</c>: repoints a
+    /// reference inside a closed document. Returns SolidWorks' success flag.
+    /// </summary>
+    bool ReplaceReferencedDocument(string referencing, string referenced, string newReference) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>
@@ -37,8 +44,20 @@ public sealed class SolidWorksApiReferenceReader(Func<ISolidWorksSession> connec
         if (!File.Exists(path))
             throw new ReferenceReaderException(ErrorCodes.NotFound, $"file not found: {path}");
 
-        var raw = Call(path);
+        var raw = Call(path, s => s.GetDocumentDependencies(path));
         return ParseDependencies(raw, File.Exists);
+    }
+
+    public void ReplaceReference(string document, string oldReference, string newReference)
+    {
+        if (!File.Exists(document))
+            throw new ReferenceReaderException(ErrorCodes.NotFound, $"file not found: {document}");
+        if (!File.Exists(newReference))
+            throw new ReferenceReaderException(ErrorCodes.NotFound, $"file not found: {newReference}");
+        var ok = Call(document, s => s.ReplaceReferencedDocument(document, oldReference, newReference));
+        if (!ok)
+            throw new ReferenceReaderException(ErrorCodes.OpenFailed,
+                $"SolidWorks could not change {document} to use {newReference} (is it open in SolidWorks, or read-only?)");
     }
 
     public void Dispose()
@@ -72,14 +91,14 @@ public sealed class SolidWorksApiReferenceReader(Func<ISolidWorksSession> connec
         return refs;
     }
 
-    private object? Call(string path)
+    private T Call<T>(string path, Func<ISolidWorksSession, T> call)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
                 _session ??= connect();
-                return _session.GetDocumentDependencies(path);
+                return call(_session);
             }
             catch (ReferenceReaderException)
             {

@@ -313,6 +313,16 @@ impl DriveApi for FakeDrive {
         if let Some((on, _reason)) = patch.read_only {
             f.read_only = on;
         }
+        if let Some(name) = patch.name {
+            f.name = name;
+        }
+        if let Some((from, to)) = patch.reparent {
+            if f.parent.as_deref() != Some(from.as_str()) {
+                return Err(Error::Drive { status: 400, message: format!("{file_id} is not in {from}") });
+            }
+            Self::get(&s, &to)?;
+            f.parent = Some(to);
+        }
         Self::commit_change(&mut s, f.clone());
         Ok(f)
     }

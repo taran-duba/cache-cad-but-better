@@ -153,8 +153,8 @@ export function CheckinScene({ active }: { active: boolean }) {
     <AppWindow
       tab="changes"
       syncing={p === 4}
-      toast={p === 5 ? "Checked in 3 files" : undefined}
-      label="Checking in an assembly with two parts: a missing reference blocks it, then all three files upload together."
+      toast={p === 5 ? "Pushed 3 files" : undefined}
+      label="Pushing an assembly with two parts: a missing reference blocks it, then all three files upload together."
     >
       <h4 className="mock-h">My changes</h4>
       <div className="mock-panel">
@@ -194,7 +194,7 @@ export function CheckinScene({ active }: { active: boolean }) {
 
         <div className="mock-row-actions">
           <span className={`mock-btn mock-btn-primary ${p === 2 ? "is-disabled" : ""} ${p === 3 ? "pressed" : ""}`}>
-            Check in 3 files
+            Push changes
           </span>
           {p === 4 && (
             <div className="mock-progress" style={{ flex: 1 }}>

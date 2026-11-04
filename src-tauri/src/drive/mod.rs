@@ -157,6 +157,10 @@ pub struct MetadataPatch {
     pub app_properties: BTreeMap<String, Option<String>>,
     /// `Some((read_only, reason))` sets or clears the content restriction.
     pub read_only: Option<(bool, Option<String>)>,
+    /// Rename the file.
+    pub name: Option<String>,
+    /// Move the file: `(from parent, to parent)`.
+    pub reparent: Option<(String, String)>,
 }
 
 impl MetadataPatch {
@@ -176,6 +180,19 @@ impl MetadataPatch {
 
     pub fn read_only(mut self, on: bool, reason: Option<String>) -> Self {
         self.read_only = Some((on, reason));
+        self
+    }
+
+    /// Rename and/or move. A no-op part (same name, same parent) is left out.
+    pub fn relocate(mut self, f: &RemoteFile, new_parent: &str, new_name: &str) -> Self {
+        if f.name != new_name {
+            self.name = Some(new_name.to_string());
+        }
+        if let Some(old) = &f.parent {
+            if old != new_parent {
+                self.reparent = Some((old.clone(), new_parent.to_string()));
+            }
+        }
         self
     }
 }

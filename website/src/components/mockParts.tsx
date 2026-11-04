@@ -35,7 +35,7 @@ const STATUS = {
   outdated: ["Update waiting", "pill-info"],
   not_synced: ["Not on this PC", "pill-dim"],
   modified: ["Edited", "pill-warn"],
-  pending: ["Being checked in", "pill-info"],
+  pending: ["Being pushed", "pill-info"],
 } as const;
 export type Status = keyof typeof STATUS;
 

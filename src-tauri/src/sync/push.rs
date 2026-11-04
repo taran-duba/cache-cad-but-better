@@ -35,6 +35,10 @@ pub struct PushRequest {
     pub message: String,
     /// Keep the files checked out after the check-in.
     pub keep_locked: bool,
+    /// Files or folders to rename/move as part of this push: (file id, new path in the vault).
+    /// Files must be checked out by me; folders need no lock.
+    #[serde(default)]
+    pub moves: Vec<(String, PathBuf)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,12 +49,24 @@ struct JournalItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct MoveItem {
+    file_id: String,
+    new_rel: PathBuf,
+    is_folder: bool,
+    /// Head revision after the move (files only); set once the move is done on Drive.
+    rev: Option<String>,
+    done: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Journal {
     id: String,
     message: String,
     keep_locked: bool,
     created_time: String,
     items: Vec<JournalItem>,
+    #[serde(default)]
+    moves: Vec<MoveItem>,
     committed: bool,
 }
 
@@ -71,11 +87,26 @@ fn upload_order(rel: &std::path::Path) -> u8 {
 
 impl<D: DriveApi> Vault<D> {
     pub async fn push(&self, req: PushRequest) -> Result<PushOutcome> {
-        if req.files.is_empty() && req.new_files.is_empty() {
+        if req.files.is_empty() && req.new_files.is_empty() && req.moves.is_empty() {
             return Err(Error::Conflict("nothing to push".into()));
         }
         let map = self.paths()?;
         let mut items = Vec::new();
+        // Paths after this push's own moves: a file inside a moved folder is already at its new
+        // local path when the push starts.
+        let relocations: Vec<(PathBuf, PathBuf)> = req
+            .moves
+            .iter()
+            .filter_map(|(id, new_rel)| Some((map.path(id)?.to_path_buf(), new_rel.clone())))
+            .collect();
+        let after_moves = |rel: PathBuf| -> PathBuf {
+            for (old, new) in &relocations {
+                if let Ok(rest) = rel.strip_prefix(old) {
+                    return if rest.as_os_str().is_empty() { new.clone() } else { new.join(rest) };
+                }
+            }
+            rel
+        };
 
         // 1. Verify everything before uploading anything.
         for id in &req.files {
@@ -95,7 +126,7 @@ impl<D: DriveApi> Vault<D> {
                     f.name
                 )));
             }
-            let rel = map.path(id).ok_or_else(|| Error::NotFound(f.name.clone()))?.to_path_buf();
+            let rel = after_moves(map.path(id).ok_or_else(|| Error::NotFound(f.name.clone()))?.to_path_buf());
             if !self.abs(&rel).exists() {
                 return Err(Error::NotFound(rel.display().to_string()));
             }
@@ -112,12 +143,29 @@ impl<D: DriveApi> Vault<D> {
         }
         items.sort_by_key(|i| upload_order(&i.rel_path));
 
+        let mut moves = Vec::new();
+        for (id, new_rel) in &req.moves {
+            let f = self.drive.get_file(id).await?;
+            self.index.apply_remote(std::slice::from_ref(&f), &[])?;
+            if !f.is_folder() && !self.i_hold_lock(&f) {
+                return Err(match f.lock() {
+                    Some(l) => Error::Locked { name: f.name, by: l.display_owner().to_string() },
+                    None => Error::NotCheckedOut(f.name),
+                });
+            }
+            if map.id_for(new_rel).is_some_and(|other| other != id) {
+                return Err(Error::Conflict(format!("{} already exists", new_rel.display())));
+            }
+            moves.push(MoveItem { file_id: id.clone(), new_rel: new_rel.clone(), is_folder: f.is_folder(), rev: None, done: false });
+        }
+
         let mut j = Journal {
             id: ulid::Ulid::new().to_string(),
             message: req.message,
             keep_locked: req.keep_locked,
             created_time: chrono::Utc::now().to_rfc3339(),
             items,
+            moves,
             committed: false,
         };
         self.save_journal(&j)?;
@@ -139,6 +187,23 @@ impl<D: DriveApi> Vault<D> {
     }
 
     async fn continue_push(&self, j: &mut Journal) -> Result<PushOutcome> {
+        // 1b. Renames and moves, tagged so teammates hold them back until the commit.
+        for n in 0..j.moves.len() {
+            if j.moves[n].done {
+                continue;
+            }
+            let m = j.moves[n].clone();
+            let parent = self.ensure_parent_folder(&m.new_rel).await?;
+            let name = m.new_rel.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let f = self.drive.get_file(&m.file_id).await?;
+            let patch = MetadataPatch::default().set(props::PENDING_CHANGESET, &j.id).relocate(&f, &parent, &name);
+            let moved = self.drive.update_metadata(&m.file_id, patch).await?;
+            self.index.apply_remote(std::slice::from_ref(&moved), &[])?;
+            j.moves[n].rev = moved.head_revision_id.clone();
+            j.moves[n].done = true;
+            self.save_journal(j)?;
+        }
+
         // 2. Upload whatever isn't uploaded yet.
         for n in 0..j.items.len() {
             if j.items[n].uploaded_rev.is_some() {
@@ -162,6 +227,7 @@ impl<D: DriveApi> Vault<D> {
                 .items
                 .iter()
                 .filter_map(|i| Some((i.file_id.clone()?, i.uploaded_rev.clone()?)))
+                .chain(j.moves.iter().filter_map(|m| Some((m.file_id.clone(), m.rev.clone()?))))
                 .collect::<BTreeMap<_, _>>(),
         };
         if !j.committed {
@@ -199,8 +265,33 @@ impl<D: DriveApi> Vault<D> {
                 localfs::set_read_only(&abs, !j.keep_locked)?;
             }
         }
+        for m in &j.moves {
+            if j.items.iter().any(|i| i.file_id.as_deref() == Some(m.file_id.as_str())) {
+                continue; // also uploaded: finalized above
+            }
+            let patch = if m.is_folder {
+                MetadataPatch::default().unset(props::PENDING_CHANGESET)
+            } else {
+                if let Some(rev) = &m.rev {
+                    self.drive.keep_revision_forever(&m.file_id, rev).await?;
+                }
+                if j.keep_locked {
+                    MetadataPatch::default().unset(props::PENDING_CHANGESET)
+                } else {
+                    Self::unlock_patch().unset(props::PENDING_CHANGESET)
+                }
+            };
+            let f = self.drive.update_metadata(&m.file_id, patch).await?;
+            self.index.apply_remote(std::slice::from_ref(&f), &[])?;
+            if !m.is_folder && !j.keep_locked {
+                let abs = self.abs(&m.new_rel);
+                if abs.exists() {
+                    localfs::set_read_only(&abs, true)?;
+                }
+            }
+        }
         self.index.delete_journal(&j.id)?;
-        Ok(PushOutcome { changeset: j.id.clone(), files: j.items.len() })
+        Ok(PushOutcome { changeset: j.id.clone(), files: j.items.len() + j.moves.iter().filter(|m| !m.is_folder).count() })
     }
 
     async fn upload_item(&self, changeset: &str, item: &JournalItem) -> Result<RemoteFile> {
@@ -325,6 +416,7 @@ mod tests {
                 new_files: vec!["Spacer.SLDPRT".into()],
                 message: "new gear ratio".into(),
                 keep_locked: false,
+                moves: vec![],
             })
             .await
             .unwrap();
@@ -431,6 +523,7 @@ mod tests {
                 new_files: vec!["Robot/Spacer.SLDPRT".into()],
                 message: "m".into(),
                 keep_locked: false,
+                moves: vec![],
             })
             .await
             .unwrap();

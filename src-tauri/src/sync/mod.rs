@@ -7,6 +7,7 @@ pub mod locks;
 pub mod pull;
 pub mod push;
 pub mod remove;
+pub mod restore;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

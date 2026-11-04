@@ -24,7 +24,7 @@ const FEATURES: Feature[] = [
   {
     icon: ScanSearch,
     title: "Mates that don't break",
-    body: "SolidWorks itself reports each assembly's references, and check-ins stop on missing files before teammates ever see them.",
+    body: "SolidWorks itself reports each assembly's references, and pushes stop on missing files before teammates ever see them.",
   },
   {
     icon: LifeBuoy,
@@ -33,8 +33,8 @@ const FEATURES: Feature[] = [
   },
   {
     icon: Archive,
-    title: "A clear history of check-ins",
-    body: "Every check-in is logged with who made it, when, how many files went up, and the message they wrote.",
+    title: "A clear history of pushes",
+    body: "Every push is logged with who made it, when, how many files went up, and the message they wrote.",
     wide: true,
   },
 ];

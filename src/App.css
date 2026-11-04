@@ -737,6 +737,32 @@ legend {
   background: var(--hover);
 }
 
+.rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 4px 4px 8px;
+  max-width: 760px;
+}
+
+.rename label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 360px;
+}
+
+.rename .rename-input {
+  width: 100%;
+}
+
+.rename p {
+  flex-basis: 100%;
+  margin: 0;
+  line-height: 1.5;
+}
+
 .lock-help {
   padding: 4px 4px 8px;
   line-height: 1.5;
@@ -960,4 +986,12 @@ legend {
   .skeleton-bar {
     background: var(--dim-bg);
   }
+}
+
+.history-files {
+  padding: 6px 0 4px 12px;
+}
+
+.history-files li {
+  padding: 2px 0;
 }

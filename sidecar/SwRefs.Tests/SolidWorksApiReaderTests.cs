@@ -12,7 +12,39 @@ public class SolidWorksApiReaderTests
         public int Calls;
         public bool Disposed;
         public object? GetDocumentDependencies(string path) { Calls++; return answer(path); }
+        public Func<string, string, string, bool> Replace = (_, _, _) => true;
+        public List<(string, string, string)> Replaced = [];
+        public bool ReplaceReferencedDocument(string referencing, string referenced, string newReference)
+        {
+            Replaced.Add((referencing, referenced, newReference));
+            return Replace(referencing, referenced, newReference);
+        }
         public void Dispose() => Disposed = true;
+    }
+
+    [Fact]
+    public void ReplaceReference_AsksSolidWorks_AndFailsWhenItSaysNo()
+    {
+        using var doc = TempFile("A.SLDASM");
+        using var part = TempFile("New.SLDPRT");
+        var session = new FakeSession(_ => null);
+        using var reader = new SolidWorksApiReferenceReader(() => session, TextWriter.Null);
+
+        reader.ReplaceReference(doc.Path, @"C:\Old\P.SLDPRT", part.Path);
+        Assert.Equal((doc.Path, @"C:\Old\P.SLDPRT", part.Path), Assert.Single(session.Replaced));
+
+        session.Replace = (_, _, _) => false;
+        var e = Assert.Throws<ReferenceReaderException>(() => reader.ReplaceReference(doc.Path, "x", part.Path));
+        Assert.Equal(ErrorCodes.OpenFailed, e.Code);
+    }
+
+    [Fact]
+    public void ReplaceReference_NeedsBothFilesToExist()
+    {
+        using var doc = TempFile("A.SLDASM");
+        using var reader = new SolidWorksApiReferenceReader(() => new FakeSession(_ => null), TextWriter.Null);
+        var e = Assert.Throws<ReferenceReaderException>(() => reader.ReplaceReference(doc.Path, "x", @"C:\nope\New.SLDPRT"));
+        Assert.Equal(ErrorCodes.NotFound, e.Code);
     }
 
     [Fact]

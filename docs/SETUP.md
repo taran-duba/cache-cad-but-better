@@ -7,7 +7,7 @@ For students, using Permafrost is:
 3. Pick your team's CAD folder: browse to it and click **Use this folder**, or paste a link to it.
    It can be a whole shared drive, a folder inside one, a folder in My Drive, or one shared with
    you. Only that folder syncs.
-4. In **Vault**, tick **Get** on the folders you work on.
+4. In **Vault**, tick **Get** on the folders you work on, or click **Select all** to get everything.
 
 Two people do a one-time step first.
 
@@ -41,15 +41,16 @@ For a desktop app the "secret" isn't really secret; Google's sign-in protects it
   shared drive, or **Editor** on a folder. Permafrost only ever reads and writes inside it. It's
   also fine to use a whole shared drive. Add every CAD member as **Content manager** or
   higher. Permafrost creates a hidden `.permafrost/` folder there for check-in records and team
-  settings. Don't delete it. (Drives set up when the app was called cadsync have a `.cadsync/`
+  settings (push records). Don't delete it. (Drives set up when the app was called cadsync have a `.cadsync/`
   folder instead; Permafrost keeps using it.)
-- **Reference checking:** Permafrost reads which parts each assembly uses so check-ins can add
-  them and catch broken references. It asks SolidWorks itself, so there's nothing to set up, but
-  SolidWorks must be installed on each PC that checks files in. If SolidWorks isn't open,
-  Permafrost starts it in the background (the first check-in review can take a minute) and closes
+- **Reference checking:** Permafrost reads which parts each assembly uses so pushes can add
+  them and catch broken references, check-outs can take an assembly's parts along, and renames
+  can update every assembly that uses a file. It asks SolidWorks itself, so there's nothing to set up, but
+  SolidWorks must be installed on each PC that pushes files. If SolidWorks isn't open,
+  Permafrost starts it in the background (the first review can take a minute) and closes
   it afterwards. No license key is involved. It's on by default; untick **Settings › SolidWorks
-  reference checking** on a PC to turn it off there (check-ins then won't add an assembly's parts
-  automatically).
+  reference checking** on a PC to turn it off there (pushes then won't add an assembly's parts
+  automatically, and SolidWorks files can't be renamed from that PC).
 
 ## Good to know
 
@@ -62,17 +63,23 @@ For a desktop app the "secret" isn't really secret; Google's sign-in protects it
 ## How to work
 
 - **Check out** a file before editing it. Files you haven't checked out are read-only, and
-  SolidWorks opens them read-only, so nobody overwrites anyone.
-- When you're done, go to **My changes**, pick your files, click **Review check-in**, fix anything
-  it flags, write what changed, and click **Check in**. Parts your assemblies use are added
-  automatically.
-- **Check in or undo before you leave the shop.** A forgotten check-out blocks everyone else.
+  SolidWorks opens them read-only, so nobody overwrites anyone. Checking out an assembly also
+  checks out every part it uses. **Check out all** checks out a whole folder at once.
+- **Open** opens a file in SolidWorks straight from Permafrost.
+- When you're done, go to **My changes**, pick your files, click **Review changes to push**, fix
+  anything it flags, write what changed, and click **Push changes**. Parts your assemblies use are
+  added automatically.
+- **Push or undo before you leave the shop.** A forgotten check-out blocks everyone else.
   Check-outs older than a day are highlighted as "forgotten?".
-- **Need a file someone else has?** Click their 🔒 name, or **Need it?**. First ask them to check
-  it in (there's a button that copies a message for you). If you can't reach them, **Take it
-  over** breaks their lock and checks it out to you. Their edits that weren't checked in stay
+- **Need a file someone else has?** Click their 🔒 name, or **Need it?**. First ask them to push
+  it (there's a button that copies a message for you). If you can't reach them, **Take it
+  over** breaks their lock and checks it out to you. Their edits that weren't pushed stay
   only on their PC, as a separate copy.
-- Teammates get a check-in all at once. If they have the file open in SolidWorks, the update
+- Teammates get a push all at once. If they have the file open in SolidWorks, the update
   waits until they close it.
-- Rename and move CAD files from inside SolidWorks, not in Explorer. Renaming outside SolidWorks
-  breaks references.
+- **Rename and move files with Permafrost's Rename button**, not in Explorer or on the Drive
+  website. Permafrost updates every assembly and drawing that uses the file and pushes it all
+  together. Close the files in SolidWorks first; it won't run while a teammate has any of them
+  checked out.
+- **Made a mistake?** In **History**, open a push and click **Restore this file** or **Restore all
+  files from this push**. It's pushed as a new version, so nothing in History is lost.
