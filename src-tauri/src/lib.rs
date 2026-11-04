@@ -48,6 +48,7 @@ pub fn run() {
             app::commands::set_selection,
             app::commands::select_all,
             app::commands::check_out_all,
+            app::commands::check_out_with_refs,
             app::commands::sync_now,
             app::commands::check_out,
             app::commands::undo_check_out,

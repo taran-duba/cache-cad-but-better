@@ -14,7 +14,7 @@ use crate::drive::{props, LockInfo, RemoteFile};
 use crate::error::{Error, Result};
 use crate::index::{Manifest, PathMap};
 use crate::names::{cad_kind, is_temp_file, CadKind};
-use crate::refs::{CheckInPlan, Problem, SidecarRefs, StaticRefs};
+use crate::refs::{CheckInPlan, CheckOutRefsReport, Problem, RefReader, SidecarRefs, StaticRefs};
 use crate::sync::localfs;
 use crate::sync::pull::{is_selected, PullReport};
 use crate::sync::push::{PushOutcome, PushRequest};
@@ -372,6 +372,25 @@ pub async fn check_out(app: AppHandle, state: State<'_, AppState>, file_id: Stri
     let r = state.vault().await?.check_out(&file_id).await;
     if let Ok(l) = &r {
         tracing::info!(file = %file_id, owner = %l.owner, "checked out");
+    }
+    state.check_expired(&app, r).await
+}
+
+/// Check out a file plus everything an assembly references.
+#[tauri::command]
+pub async fn check_out_with_refs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_id: String,
+) -> Result<CheckOutRefsReport> {
+    let v = state.vault().await?;
+    let cfg = state.config.read().await.clone();
+    let r = match sidecar_path(&cfg).filter(|p| p.exists()).filter(|_| !cfg.refs_disabled) {
+        Some(exe) => v.check_out_with_refs(&SidecarRefs::new(exe), &file_id).await,
+        None => v.check_out_with_refs(&StaticRefs::default(), &file_id).await,
+    };
+    if let Ok(rep) = &r {
+        tracing::info!(file = %file_id, deps = rep.deps_checked_out, "checked out with references");
     }
     state.check_expired(&app, r).await
 }

@@ -82,6 +82,14 @@ export interface CheckOutAllReport {
   firstError: string | null;
 }
 
+export interface CheckOutRefsReport {
+  depsCheckedOut: number;
+  depsLockedByOthers: string[];
+  depsMissing: number;
+  depsFailed: number;
+  firstError: string | null;
+}
+
 export interface PullReport {
   downloaded: number;
   restored: number;
@@ -140,6 +148,7 @@ export const api = {
   listChildren: (parentId: string | null) => invoke<Entry[]>("list_children", { parentId }),
   setSelection: (fileId: string, get: boolean | null) => invoke<void>("set_selection", { fileId, get }),
   selectAll: (folderId: string | null) => invoke<void>("select_all", { folderId }),
+  checkOutWithRefs: (fileId: string) => invoke<CheckOutRefsReport>("check_out_with_refs", { fileId }),
   checkOutAll: (folderId: string | null) => invoke<CheckOutAllReport>("check_out_all", { folderId }),
   syncNow: () => invoke<PullReport>("sync_now"),
   checkOut: (fileId: string) => invoke<LockInfo>("check_out", { fileId }),

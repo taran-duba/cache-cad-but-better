@@ -257,7 +257,18 @@ export function VaultView({
                     <button
                       className="btn btn-small"
                       disabled={busy !== null}
-                      onClick={() => act(e.id, () => api.checkOut(e.id), `Checked out ${e.name}`)}
+                      onClick={() =>
+                        act(e.id, async () => {
+                          const r = await api.checkOutWithRefs(e.id);
+                          const parts = [`Checked out ${e.name}`];
+                          if (r.depsCheckedOut) parts.push(`and ${r.depsCheckedOut} referenced file${r.depsCheckedOut === 1 ? "" : "s"}`);
+                          let msg = parts.join(" ") + ".";
+                          if (r.depsLockedByOthers.length)
+                            msg += ` Already checked out by a teammate: ${r.depsLockedByOthers.join(", ")}.`;
+                          if (r.depsFailed) msg += ` ${r.depsFailed} reference(s) failed (${r.firstError}).`;
+                          (r.depsFailed || r.depsLockedByOthers.length ? toasts.warn : toasts.info)(msg);
+                        })
+                      }
                     >
                       Check out
                     </button>

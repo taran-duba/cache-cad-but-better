@@ -159,7 +159,77 @@ pub(crate) fn relative_to(root: &Path, p: &str) -> Option<PathBuf> {
     Some(PathBuf::from(tail.replace('\\', "/")))
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckOutRefsReport {
+    /// Referenced files newly checked out along with the assembly.
+    pub deps_checked_out: usize,
+    /// Referenced files a teammate already has checked out (left alone).
+    pub deps_locked_by_others: Vec<String>,
+    /// References that aren't in the vault (missing, or outside it).
+    pub deps_missing: usize,
+    pub deps_failed: usize,
+    pub first_error: Option<String>,
+}
+
 impl<D: DriveApi> Vault<D> {
+    /// Check out a file and, if it's an assembly, everything it references (recursively), so
+    /// nobody has to check out each part by hand. Failing to lock the file itself is an error;
+    /// problems with individual references are reported, not fatal. When the reader can't
+    /// answer (no SolidWorks helper), the references saved by the last check-in preview are used.
+    pub async fn check_out_with_refs(&self, reader: &impl RefReader, file_id: &str) -> Result<CheckOutRefsReport> {
+        self.check_out(file_id).await?;
+        let mut report = CheckOutRefsReport::default();
+        let map = self.paths()?;
+        let mut visited: BTreeSet<String> = BTreeSet::from([file_id.to_string()]);
+        let mut queue = vec![file_id.to_string()];
+        while let Some(id) = queue.pop() {
+            let Some(rel) = map.path(&id).map(Path::to_path_buf) else { continue };
+            if !matches!(cad_kind(&rel.to_string_lossy()), CadKind::Assembly) {
+                continue;
+            }
+            let abs = self.abs(&rel);
+            if !abs.exists() {
+                continue;
+            }
+            let mut paths: Vec<String> = match reader.refs(&abs).await {
+                Ok(refs) => refs.into_iter().filter(|r| !r.is_virtual).map(|r| r.path).collect(),
+                Err(_) => Vec::new(),
+            };
+            if paths.is_empty() {
+                paths = self.index.refs(&id)?;
+            }
+            for path in paths {
+                let Some(dep_rel) = relative_to(&self.root, &path) else {
+                    report.deps_missing += 1;
+                    continue;
+                };
+                let Some(dep_id) = map.id_for(&dep_rel).map(str::to_string) else {
+                    report.deps_missing += 1;
+                    continue;
+                };
+                if !visited.insert(dep_id.clone()) {
+                    continue;
+                }
+                let was_mine = self.index.file(&dep_id)?.is_some_and(|f| self.i_hold_lock(&f));
+                match self.check_out(&dep_id).await {
+                    Ok(_) => {
+                        if !was_mine {
+                            report.deps_checked_out += 1;
+                        }
+                    }
+                    Err(Error::Locked { .. }) => report.deps_locked_by_others.push(dep_rel.to_string_lossy().into_owned()),
+                    Err(e) => {
+                        report.deps_failed += 1;
+                        report.first_error.get_or_insert_with(|| format!("{}: {e}", dep_rel.display()));
+                    }
+                }
+                queue.push(dep_id);
+            }
+        }
+        Ok(report)
+    }
+
     /// Work out what a check-in really needs: walk the reference tree of every
     /// selected assembly/drawing, pull in modified dependencies that are
     /// checked out by me (or brand new), and list anything that would break
@@ -284,6 +354,37 @@ mod tests {
         assert_eq!(relative_to(root, "c:\\cad\\team drive\\Arm\\Gear.SLDPRT"), Some("Arm/Gear.SLDPRT".into()));
         assert_eq!(relative_to(root, "C:\\Users\\alex\\Desktop\\Gear.SLDPRT"), None);
         assert_eq!(relative_to(root, "C:/CAD/Team Drive2/x.sldprt"), None);
+    }
+
+    #[tokio::test]
+    async fn check_out_takes_referenced_parts_too() {
+        let drive = FakeDrive::new("seed@team.org");
+        let root = drive.drive_id.clone();
+        let arm = drive.seed_folder(&root, "Arm");
+        let asm = drive.seed_file(&arm, "Arm.SLDASM", b"a1");
+        let gear = drive.seed_file(&arm, "Gear.SLDPRT", b"g1");
+        let plate = drive.seed_file(&arm, "Plate.SLDPRT", b"p1");
+
+        let b = vault(&drive, "bo@team.org", "pc-b");
+        b.vault.index.set_selection(&root, Some(true)).unwrap();
+        b.vault.sync_down().await.unwrap();
+        b.vault.check_out(&plate).await.unwrap();
+
+        let a = vault(&drive, "alex@team.org", "pc-a");
+        let v = &a.vault;
+        v.index.set_selection(&root, Some(true)).unwrap();
+        v.sync_down().await.unwrap();
+        let reader = StaticRefs(HashMap::from([(
+            v.root.join("Arm/Arm.SLDASM"),
+            vec![r(&v.root.join("Arm/Gear.SLDPRT")), r(&v.root.join("Arm/Plate.SLDPRT")), r(&v.root.join("Arm/Gone.SLDPRT"))],
+        )]));
+
+        let rep = v.check_out_with_refs(&reader, &asm).await.unwrap();
+        assert_eq!(rep.deps_checked_out, 1);
+        assert_eq!(rep.deps_locked_by_others, ["Arm/Plate.SLDPRT"]);
+        assert_eq!(rep.deps_missing, 1);
+        assert!(v.i_hold_lock(&v.index.file(&asm).unwrap().unwrap()));
+        assert!(v.i_hold_lock(&v.index.file(&gear).unwrap().unwrap()));
     }
 
     #[tokio::test]
