@@ -104,6 +104,36 @@ export function VaultView({
             </span>
           ))}
         </div>
+        <button
+          className="btn btn-small"
+          disabled={busy !== null || rows === null || rows.length === 0}
+          title="Download everything in this folder, including subfolders, to this PC"
+          onClick={() =>
+            act(
+              "select-all",
+              () => api.selectAll(current.id),
+              `Getting everything in ${current.name}. It will download on the next sync.`,
+            )
+          }
+        >
+          Select all
+        </button>
+        <button
+          className="btn btn-small"
+          disabled={busy !== null || rows === null || rows.length === 0}
+          title="Select everything in this folder and check out every file nobody else has"
+          onClick={() =>
+            act("select-all", async () => {
+              const r = await api.checkOutAll(current.id);
+              const parts = [`Checked out ${r.checkedOut} file${r.checkedOut === 1 ? "" : "s"}.`];
+              if (r.lockedByOthers) parts.push(`${r.lockedByOthers} already checked out by a teammate.`);
+              if (r.failed) parts.push(`${r.failed} failed (${r.firstError}).`);
+              (r.failed ? toasts.warn : toasts.info)(parts.join(" "));
+            })
+          }
+        >
+          Check out all
+        </button>
         <input
           className="search"
           placeholder="Filter this folder"
@@ -213,6 +243,16 @@ export function VaultView({
                     </span>
                   ) : (
                     <>
+                  {!e.isFolder && e.selected && e.status !== "not_synced" && confirming?.id !== e.id && (
+                    <button
+                      className="btn btn-small"
+                      disabled={busy !== null}
+                      title="Open in SolidWorks (or whatever app is set for this file type)"
+                      onClick={() => api.openFile(e.id).catch((err) => toasts.error(errorText(err)))}
+                    >
+                      Open
+                    </button>
+                  )}
                   {!e.isFolder && !e.lock && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small"

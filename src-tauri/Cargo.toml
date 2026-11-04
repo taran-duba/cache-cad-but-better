@@ -1,6 +1,6 @@
 [package]
 name = "permafrost"
-version = "1.2.0"
+version = "1.3.0"
 description = "SolidWorks + Google Drive sync with check-out locks and atomic changesets"
 authors = ["permafrost contributors"]
 edition = "2021"

@@ -301,6 +301,42 @@ impl Index {
         Ok(())
     }
 
+    /// Every file and folder beneath `folder_id` (not including it).
+    pub fn descendants(&self, folder_id: &str) -> Result<Vec<RemoteFile>> {
+        let mut children: BTreeMap<String, Vec<RemoteFile>> = BTreeMap::new();
+        for f in self.all_files()? {
+            if let Some(p) = f.parent.clone() {
+                children.entry(p).or_default().push(f);
+            }
+        }
+        let mut out = Vec::new();
+        let mut stack = vec![folder_id.to_string()];
+        while let Some(id) = stack.pop() {
+            for k in children.remove(&id).unwrap_or_default() {
+                stack.push(k.id.clone());
+                out.push(k);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Mark `folder_id` as "get" and drop every explicit choice beneath it, so the whole subtree is pulled.
+    pub fn select_subtree(&self, folder_id: &str) -> Result<()> {
+        let below = self.descendants(folder_id)?;
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for f in &below {
+            tx.execute("DELETE FROM selection WHERE file_id = ?1", [&f.id])?;
+        }
+        tx.execute(
+            "INSERT INTO selection(file_id, mode) VALUES (?1, 1)
+             ON CONFLICT(file_id) DO UPDATE SET mode = 1",
+            [folder_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn selections(&self) -> Result<BTreeMap<String, bool>> {
         let conn = self.conn();
         let mut st = conn.prepare_cached("SELECT file_id, mode FROM selection")?;

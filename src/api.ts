@@ -75,6 +75,13 @@ export type Deferred =
   | { reason: "open"; file_id: string }
   | { reason: "modified_orphan"; file_id: string };
 
+export interface CheckOutAllReport {
+  checkedOut: number;
+  lockedByOthers: number;
+  failed: number;
+  firstError: string | null;
+}
+
 export interface PullReport {
   downloaded: number;
   restored: number;
@@ -132,6 +139,8 @@ export const api = {
   startDemo: () => invoke<void>("start_demo"),
   listChildren: (parentId: string | null) => invoke<Entry[]>("list_children", { parentId }),
   setSelection: (fileId: string, get: boolean | null) => invoke<void>("set_selection", { fileId, get }),
+  selectAll: (folderId: string | null) => invoke<void>("select_all", { folderId }),
+  checkOutAll: (folderId: string | null) => invoke<CheckOutAllReport>("check_out_all", { folderId }),
   syncNow: () => invoke<PullReport>("sync_now"),
   checkOut: (fileId: string) => invoke<LockInfo>("check_out", { fileId }),
   undoCheckOut: (fileId: string, discardChanges: boolean) =>
@@ -148,6 +157,7 @@ export const api = {
     allowDuplicateNames: boolean;
   }) => invoke<{ changeset: string; files: number }>("check_in", { args }),
   history: (limit?: number) => invoke<Manifest[]>("history", { limit }),
+  openFile: (fileId: string) => invoke<void>("open_file", { fileId }),
   revealRoot: () => invoke<void>("reveal_root"),
   frontendReady: () => invoke<void>("frontend_ready"),
   deleteFromDrive: (fileId: string, force: boolean) =>

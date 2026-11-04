@@ -308,6 +308,59 @@ pub async fn set_selection(state: State<'_, AppState>, file_id: String, get: Opt
     state.vault().await?.index.set_selection(&file_id, get)
 }
 
+/// "Select all": pull everything under a folder (`None` = the whole CAD folder).
+#[tauri::command]
+pub async fn select_all(state: State<'_, AppState>, folder_id: Option<String>) -> Result<()> {
+    let v = state.vault().await?;
+    let id = folder_id.unwrap_or_else(|| v.root_id.clone());
+    v.index.select_subtree(&id)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckOutAllReport {
+    checked_out: usize,
+    /// Files someone else already has checked out.
+    locked_by_others: usize,
+    /// Files that failed for another reason (first error message kept).
+    failed: usize,
+    first_error: Option<String>,
+}
+
+/// "Check out all": select everything under a folder, then check out every file in it that nobody holds.
+#[tauri::command]
+pub async fn check_out_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    folder_id: Option<String>,
+) -> Result<CheckOutAllReport> {
+    let v = state.vault().await?;
+    let id = folder_id.unwrap_or_else(|| v.root_id.clone());
+    v.index.select_subtree(&id)?;
+    let map = PathMap::build(&v.root_id, &v.index.all_files()?);
+    let mut report = CheckOutAllReport { checked_out: 0, locked_by_others: 0, failed: 0, first_error: None };
+    for f in v.index.descendants(&id)? {
+        if f.is_folder() || f.trashed || !map.contains(&f.id) {
+            continue;
+        }
+        if f.lock().is_some() && !v.i_hold_lock(&f) {
+            report.locked_by_others += 1;
+            continue;
+        }
+        match v.check_out(&f.id).await {
+            Ok(_) => report.checked_out += 1,
+            Err(Error::Locked { .. }) => report.locked_by_others += 1,
+            Err(e) => {
+                report.failed += 1;
+                report.first_error.get_or_insert_with(|| format!("{}: {e}", f.name));
+            }
+        }
+    }
+    tracing::info!(folder = %id, checked_out = report.checked_out, "checked out folder");
+    let _ = app.emit("vault-changed", ());
+    Ok(report)
+}
+
 #[tauri::command]
 pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> Result<PullReport> {
     let r = state.sync_tracked(&app).await;
@@ -518,6 +571,20 @@ pub async fn reveal_root(app: AppHandle, state: State<'_, AppState>) -> Result<(
     let root = state.vault().await?.root.clone();
     app.opener()
         .open_path(root.to_string_lossy(), None::<&str>)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
+}
+
+/// Open a downloaded file in whatever app handles it (SolidWorks, for CAD files).
+#[tauri::command]
+pub async fn open_file(app: AppHandle, state: State<'_, AppState>, file_id: String) -> Result<()> {
+    let v = state.vault().await?;
+    let local = v.index.local(&file_id)?.ok_or_else(|| Error::NotFound("that file isn't on this PC yet".into()))?;
+    let path = v.abs(local.rel_path.as_ref());
+    if !path.is_file() {
+        return Err(Error::NotFound("that file isn't on this PC yet".into()));
+    }
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
 }
 
