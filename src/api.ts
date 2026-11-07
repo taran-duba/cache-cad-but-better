@@ -216,7 +216,8 @@ export const api = {
   history: (limit?: number) => invoke<HistoryEntry[]>("history", { limit }),
   openFile: (fileId: string) => invoke<void>("open_file", { fileId }),
   revealRoot: () => invoke<void>("reveal_root"),
-  frontendReady: () => invoke<void>("frontend_ready"),
+  frontendReady: () => invoke<boolean>("frontend_ready"),
+  smokeReport: (steps: { name: string; ok: boolean; detail?: string }[]) => invoke<void>("smoke_report", { steps }),
   deleteFromDrive: (fileId: string, force: boolean) =>
     invoke<{ name: string; local_copy: string | null }>("delete_from_drive", { fileId, force }),
   openLogs: () => invoke<void>("open_logs"),

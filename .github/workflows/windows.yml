@@ -118,6 +118,8 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "smoke test failed (exit code $($p.ExitCode))" }
           $features = (Get-Content $result -Raw | ConvertFrom-Json).features
           if (@($features).Count -lt 3) { throw "expected 3 feature checks (mirror, roles/areas, projects), got $(@($features).Count)" }
+          $ui = (Get-Content $result -Raw | ConvertFrom-Json).uiStepsPassed
+          if ($ui -lt 8) { throw "the UI driver clicked through only $ui of 8 steps" }
           Write-Host "permafrost started and passed the smoke test on Windows."
 
       - name: Upload smoke test result and screenshot

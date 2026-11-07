@@ -3,7 +3,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use super::config::AppConfig;
@@ -139,6 +139,7 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
     let cfg = state.config.read().await.clone();
     let vault = state.vault.read().await.clone();
     let refs_enabled = !cfg.refs_disabled;
+    let demo = state.demo.load(std::sync::atomic::Ordering::Relaxed);
     let team = match &vault {
         Some(v) => v.team()?,
         None => Team::default(),
@@ -153,10 +154,10 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
         restoring: state.restoring.load(std::sync::atomic::Ordering::Relaxed),
         syncing: state.syncing.load(std::sync::atomic::Ordering::Relaxed) > 0,
-        demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
+        demo,
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),
-        folder_id: vault.as_ref().map(|v| v.root_id.clone()),
+        folder_id: if demo { Some(state.demo_project.lock().unwrap().clone()) } else { vault.as_ref().map(|v| v.root_id.clone()) },
         folder_name: state.folder_name.read().await.clone(),
         file_count: match &vault {
             Some(v) => v.index.file_count()?,
@@ -170,8 +171,12 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         refs_enabled,
         roles_on: team.roles_on(),
         is_admin: team.is_admin(&me),
-        projects: if state.demo.load(std::sync::atomic::Ordering::Relaxed) {
-            vec![]
+        projects: if demo {
+            let open = state.demo_project.lock().unwrap().clone();
+            super::demo::PROJECTS
+                .iter()
+                .map(|&(id, name)| ProjectInfo { id: id.into(), name: name.into(), root: PathBuf::new(), active: id == open })
+                .collect()
         } else {
             cfg.projects
                 .iter()
@@ -188,8 +193,14 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
 
 /// The UI calls this once it has rendered; the start-up smoke test waits for it.
 #[tauri::command]
-pub fn frontend_ready(app: AppHandle) {
-    super::smoke::mark_ui_ready(&app);
+pub fn frontend_ready(app: AppHandle) -> bool {
+    super::smoke::mark_ui_ready(&app)
+}
+
+/// The UI's smoke-test driver reports what it clicked through (smoke mode only).
+#[tauri::command]
+pub fn smoke_report(app: AppHandle, steps: Vec<super::smoke::UiStep>) {
+    super::smoke::set_ui_steps(&app, steps);
 }
 
 #[tauri::command]
@@ -286,13 +297,31 @@ pub async fn choose_folder(app: AppHandle, state: State<'_, AppState>, input: St
 /// Switch to another project this PC has opened before (in-season, off-season, ...).
 #[tauri::command]
 pub async fn open_project(app: AppHandle, state: State<'_, AppState>, folder_id: String) -> Result<()> {
+    if state.demo.load(std::sync::atomic::Ordering::Relaxed) {
+        state.open_demo_project(&folder_id).await?;
+        let _ = app.emit("vault-changed", ());
+        sync_soon(&app);
+        return Ok(());
+    }
     if !state.config.read().await.projects.iter().any(|p| p.folder_id == folder_id) {
         return Err(Error::NotFound("that project".into()));
     }
     let r = state.open_folder(&folder_id).await;
     state.check_expired(&app, r).await?;
     let _ = app.emit("vault-changed", ());
+    sync_soon(&app);
     Ok(())
+}
+
+/// Catch the newly opened project up now instead of waiting for the next background sync.
+fn sync_soon(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if let Err(e) = state.sync_tracked(&app).await {
+            tracing::warn!(%e, "sync after switching project failed");
+        }
+    });
 }
 
 /// Forget a project on this PC. Its local files and the Drive folder are left alone.

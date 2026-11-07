@@ -68,6 +68,7 @@ pub fn run() {
             app::commands::choose_folder,
             app::commands::switch_drive,
             app::commands::open_project,
+            app::commands::smoke_report,
             app::commands::remove_project,
             app::commands::set_vault_folder,
             app::commands::open_logs,
