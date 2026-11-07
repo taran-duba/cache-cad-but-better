@@ -116,6 +116,8 @@ jobs:
           if (-not (Test-Path $result)) { throw "no smoke result written (did another permafrost instance swallow the launch?)" }
           Get-Content $result
           if ($p.ExitCode -ne 0) { throw "smoke test failed (exit code $($p.ExitCode))" }
+          $features = (Get-Content $result -Raw | ConvertFrom-Json).features
+          if (@($features).Count -lt 3) { throw "expected 3 feature checks (mirror, roles/areas, projects), got $(@($features).Count)" }
           Write-Host "permafrost started and passed the smoke test on Windows."
 
       - name: Upload smoke test result and screenshot

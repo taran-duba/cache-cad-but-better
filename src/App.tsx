@@ -102,6 +102,19 @@ export default function App() {
     }
   };
 
+  const switchProject = async (id: string) => {
+    if (id === status?.folderId) return;
+    const pending = status?.pendingCheckIns ?? 0;
+    if (pending > 0 && !window.confirm(`${pending} push(es) in this project are still finishing. They'll resume when you switch back. Switch anyway?`)) return;
+    setTab("vault");
+    try {
+      await api.openProject(id);
+    } catch (e) {
+      toasts.error(errorText(e));
+    }
+    changed();
+  };
+
   const changed = () => {
     setRevision((r) => r + 1);
     refreshStatus();
@@ -138,10 +151,31 @@ export default function App() {
         </div>
         {signedIn && (
           <div className="topbar-info">
-            <span title={status.root ?? ""}>{status.folderName}</span>
+            {status.projects.length > 1 ? (
+              <select
+                className="project-select"
+                value={status.folderId ?? ""}
+                aria-label="Project"
+                title={status.root ?? ""}
+                onChange={(e) => switchProject(e.target.value)}
+              >
+                {status.projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span title={status.root ?? ""}>{status.folderName}</span>
+            )}
             <span className="muted" title={status.me ?? ""}>
               · {status.accountName || status.me}
             </span>
+            {status.rolesOn && status.isAdmin && (
+              <span className="pill pill-info" title="You can edit everything and choose who edits what">
+                CADmin
+              </span>
+            )}
           </div>
         )}
         <div className="topbar-actions">
@@ -161,6 +195,15 @@ export default function App() {
           {signedIn && (
             <button className="btn" onClick={() => api.revealRoot().catch((e) => toasts.error(errorText(e)))}>
               Open folder
+            </button>
+          )}
+          {signedIn && !status.demo && (
+            <button
+              className="btn"
+              title="Open the CAD folder on the Google Drive website"
+              onClick={() => api.openInDrive(null).catch((e) => toasts.error(errorText(e)))}
+            >
+              Open Drive
             </button>
           )}
           {signedIn && (
@@ -200,9 +243,9 @@ export default function App() {
       </nav>
 
       <main className="content">
-        <div key={tab} className="view-enter">
+        <div key={`${status.folderId}-${tab}`} className="view-enter">
           {tab === "vault" && signedIn && (
-            <VaultView revision={revision} onChanged={changed} toasts={toasts} syncing={syncActive} />
+            <VaultView status={status} revision={revision} onChanged={changed} toasts={toasts} syncing={syncActive} />
           )}
           {tab === "changes" && signedIn && <ChangesView revision={revision} onChanged={changed} toasts={toasts} />}
           {tab === "history" && signedIn && <HistoryView revision={revision} onChanged={changed} toasts={toasts} />}

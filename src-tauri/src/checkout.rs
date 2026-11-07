@@ -25,6 +25,8 @@ pub struct CheckOutReport {
     pub deps_checked_out: usize,
     /// Files a teammate already has checked out (left alone).
     pub locked_by_others: Vec<String>,
+    /// Files in an area you can't edit (left alone; they stay read-only for you).
+    pub not_yours: Vec<String>,
     /// References that don't point at a vault file.
     pub missing: usize,
     pub failed: usize,
@@ -32,9 +34,9 @@ pub struct CheckOutReport {
 }
 
 impl<D: DriveApi> Vault<D> {
-    /// Check out a file and, if it's an assembly, everything it references (recursively), so
-    /// nobody has to check out each part by hand. Failing to lock the file itself is an error;
-    /// problems with individual references are reported, not fatal.
+    /// Check out a file and, if it's an assembly, everything it references (recursively) that
+    /// you're allowed to edit, so nobody has to check out each part by hand. Failing to lock the
+    /// file itself is an error; problems with individual references are reported, not fatal.
     pub async fn check_out_with_refs(&self, reader: &impl RefReader, file_id: &str) -> Result<CheckOutReport> {
         self.check_out(file_id).await?;
         self.check_out_many(reader, &[file_id.to_string()]).await
@@ -71,6 +73,11 @@ impl<D: DriveApi> Vault<D> {
                         }
                     }
                     Err(Error::Locked { .. }) => report.locked_by_others.push(name.clone()),
+                    // Someone else's subsystem: don't lock it, and don't reach into its parts.
+                    Err(Error::NotAllowed { .. }) => {
+                        report.not_yours.push(name);
+                        continue;
+                    }
                     Err(e) => {
                         report.failed += 1;
                         report.first_error.get_or_insert_with(|| format!("{name}: {e}"));
@@ -144,13 +151,11 @@ mod tests {
         let plate = drive.seed_file(&arm, "Plate.SLDPRT", b"p1");
 
         let b = vault(&drive, "bo@team.org", "pc-b");
-        b.vault.index.set_selection(&root, Some(true)).unwrap();
         b.vault.sync_down().await.unwrap();
         b.vault.check_out(&plate).await.unwrap();
 
         let a = vault(&drive, "alex@team.org", "pc-a");
         let v = &a.vault;
-        v.index.set_selection(&root, Some(true)).unwrap();
         v.sync_down().await.unwrap();
         let reader = StaticRefs(HashMap::from([(
             v.root.join("Arm/Arm.SLDASM"),
@@ -179,7 +184,6 @@ mod tests {
 
         let a = vault(&drive, "alex@team.org", "pc-a");
         let v = &a.vault;
-        v.index.set_selection(&arm, Some(true)).unwrap();
         v.sync_down().await.unwrap();
         let reader = StaticRefs(HashMap::from([(
             v.root.join("Arm/Arm.SLDASM"),
@@ -193,5 +197,42 @@ mod tests {
         }
         v.sync_down().await.unwrap();
         assert!(v.root.join("Library/Bolt.SLDPRT").exists(), "checked-out part kept though Library isn't ticked");
+    }
+
+    /// A subsystem owner checking out their assembly gets their own parts, not the shared
+    /// library's or another subsystem's (those stay read-only and unlocked).
+    #[tokio::test]
+    async fn check_out_with_parts_skips_areas_you_cant_edit() {
+        let drive = FakeDrive::new("seed@team.org");
+        let root = drive.drive_id.clone();
+        let arm = drive.seed_folder(&root, "Arm");
+        let lib = drive.seed_folder(&root, "Library");
+        let asm = drive.seed_file(&arm, "Arm.SLDASM", b"a1");
+        let gear = drive.seed_file(&arm, "Gear.SLDPRT", b"g1");
+        let bolt = drive.seed_file(&lib, "Bolt.SLDPRT", b"b1");
+
+        let boss = vault(&drive, "boss@team.org", "pc-boss");
+        boss.vault.sync_down().await.unwrap();
+        let team = crate::team::Team {
+            admins: vec!["boss@team.org".into()],
+            areas: vec![
+                crate::team::Area { id: lib.clone(), editors: vec![] },
+                crate::team::Area { id: arm.clone(), editors: vec!["alex@team.org".into()] },
+            ],
+        };
+        boss.vault.save_team(team).await.unwrap();
+
+        let a = vault(&drive, "alex@team.org", "pc-a");
+        let v = &a.vault;
+        v.sync_down().await.unwrap();
+        let reader = StaticRefs(HashMap::from([(
+            v.root.join("Arm/Arm.SLDASM"),
+            vec![r(&v.root.join("Arm/Gear.SLDPRT")), r(&v.root.join("Library/Bolt.SLDPRT"))],
+        )]));
+        let rep = v.check_out_with_refs(&reader, &asm).await.unwrap();
+        assert_eq!(rep.not_yours, ["Library/Bolt.SLDPRT"]);
+        assert_eq!(rep.failed, 0);
+        assert!(v.i_hold_lock(&v.index.file(&gear).unwrap().unwrap()));
+        assert!(v.index.file(&bolt).unwrap().unwrap().lock().is_none());
     }
 }

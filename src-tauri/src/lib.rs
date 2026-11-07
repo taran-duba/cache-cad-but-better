@@ -7,6 +7,7 @@ pub mod names;
 pub mod refs;
 pub mod rename;
 pub mod sync;
+pub mod team;
 
 use tauri::Manager;
 
@@ -47,8 +48,6 @@ pub fn run() {
             app::commands::sign_out,
             app::commands::start_demo,
             app::commands::list_children,
-            app::commands::set_selection,
-            app::commands::select_all,
             app::file_ops::check_out_all,
             app::file_ops::check_out_with_refs,
             app::commands::sync_now,
@@ -68,10 +67,17 @@ pub fn run() {
             app::commands::browse_folders,
             app::commands::choose_folder,
             app::commands::switch_drive,
+            app::commands::open_project,
+            app::commands::remove_project,
             app::commands::set_vault_folder,
             app::commands::open_logs,
             app::commands::take_new_crash_report,
             app::commands::delete_from_drive,
+            app::team_ops::get_team,
+            app::team_ops::set_admins,
+            app::team_ops::set_area,
+            app::team_ops::open_in_drive,
+            app::team_ops::create_drive_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

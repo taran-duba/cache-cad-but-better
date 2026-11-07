@@ -40,6 +40,8 @@ struct SmokeResult {
     /// A Google OAuth client was built into this app (only the id's shape is
     /// reported, never the id or secret).
     sign_in_built_in: bool,
+    /// Feature checks that passed (roles/areas, full mirror, projects).
+    features: Vec<String>,
     ui_ready: bool,
     elapsed_ms: u128,
     error: Option<String>,
@@ -125,6 +127,8 @@ async fn run(app: &AppHandle, r: &mut SmokeResult) -> Result<(), String> {
             .map_err(|_| "the UI never reported it was ready (webview didn't load?)".to_string())?;
     }
     r.ui_ready = true;
+
+    r.features = super::smoke_features::run(&state).await?;
 
     r.sign_in_built_in = crate::drive::auth::OAuthClient::built_in()
         .is_some_and(|c| c.client_id.ends_with(".apps.googleusercontent.com"));

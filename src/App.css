@@ -995,3 +995,14 @@ legend {
 .history-files li {
   padding: 2px 0;
 }
+
+.project-select {
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  border-radius: 6px;
+  padding: 2px 6px;
+  max-width: 240px;
+}

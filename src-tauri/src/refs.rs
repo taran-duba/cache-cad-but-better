@@ -395,7 +395,6 @@ mod tests {
         let gear = drive.seed_file(&root, "Gear.SLDPRT", b"g1");
         let a = vault(&drive, "alex@team.org", "pc-a");
         let v = &a.vault;
-        v.index.set_selection(&root, Some(true)).unwrap();
         v.sync_down().await.unwrap();
         v.check_out(&asm).await.unwrap();
         v.check_out(&gear).await.unwrap();
@@ -428,7 +427,6 @@ mod tests {
 
         let a = vault(&drive, "alex@team.org", "pc-a");
         let v = &a.vault;
-        v.index.set_selection(&root, Some(true)).unwrap();
         v.sync_down().await.unwrap();
         v.check_out(&asm).await.unwrap();
         v.check_out(&gear).await.unwrap();

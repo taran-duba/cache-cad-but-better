@@ -52,7 +52,6 @@ pub async fn build(dir: &Path) -> Result<Vault<Backend>> {
     teammate.update_metadata(&falcon, patch).await?;
 
     let index = Index::open(&dir.join("index.sqlite"))?;
-    index.set_selection(&robot, Some(true))?;
     Ok(Vault {
         drive: Backend::Fake(drive),
         index,

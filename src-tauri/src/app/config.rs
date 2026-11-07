@@ -13,8 +13,12 @@ use crate::error::Result;
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub oauth: Option<OAuthClient>,
-    /// The vault folder's Drive id: a shared drive's root, or any folder.
+    /// The open project's CAD folder on Drive: a shared drive's root, or any folder.
     pub folder_id: Option<String>,
+    /// Every project this PC has opened (in-season, off-season, ...). Switching between them
+    /// keeps each one's local folder and index, so coming back is instant.
+    #[serde(default)]
+    pub projects: Vec<Project>,
     /// Local vault root. Must be the same on every machine.
     pub root: Option<PathBuf>,
     /// Path to SwRefs.exe; defaults to the bundled sidecar.
@@ -23,6 +27,16 @@ pub struct AppConfig {
     /// that configs written before this setting existed keep it on.
     #[serde(default)]
     pub refs_disabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    /// The CAD folder's Drive id.
+    pub folder_id: String,
+    pub name: String,
+    /// Where it lives on this PC.
+    pub root: PathBuf,
 }
 
 /// Drive ids are letters, digits, `-` and `_`.
@@ -53,6 +67,33 @@ fn dirs_home() -> PathBuf {
 }
 
 impl AppConfig {
+    /// Remember (or update) a project.
+    pub fn upsert_project(&mut self, p: Project) {
+        match self.projects.iter_mut().find(|x| x.folder_id == p.folder_id) {
+            Some(x) => *x = p,
+            None => self.projects.push(p),
+        }
+    }
+
+    /// Where `folder_id` should live on this PC: where it already is, else a folder named after
+    /// it that no other project uses.
+    pub fn root_for(&self, folder_id: &str, name: &str) -> PathBuf {
+        if self.folder_id.as_deref() == Some(folder_id) {
+            if let Some(r) = &self.root {
+                return r.clone();
+            }
+        }
+        if let Some(p) = self.projects.iter().find(|p| p.folder_id == folder_id) {
+            return p.root.clone();
+        }
+        let mut root = default_root(name);
+        if self.projects.iter().any(|p| p.root == root) {
+            let short: String = folder_id.chars().take(6).collect();
+            root = default_root(&format!("{name} {short}"));
+        }
+        root
+    }
+
     pub fn load(path: &Path) -> Self {
         std::fs::read(path)
             .ok()
@@ -120,6 +161,19 @@ mod tests {
         assert_eq!(folder_id_from_input("  1AbC-dEf_9 \n"), id);
         assert_eq!(folder_id_from_input("https://drive.google.com/file/d/xyz/view"), None);
         assert_eq!(folder_id_from_input(""), None);
+    }
+
+    #[test]
+    fn projects_get_their_own_folders() {
+        let mut c = AppConfig::default();
+        let a = c.root_for("idA", "CAD");
+        c.upsert_project(Project { folder_id: "idA".into(), name: "CAD".into(), root: a.clone() });
+        let b = c.root_for("idBBBBBBB", "CAD");
+        assert_ne!(a, b, "same Drive folder name, different PC folder");
+        c.upsert_project(Project { folder_id: "idBBBBBBB".into(), name: "CAD".into(), root: b.clone() });
+        assert_eq!(c.root_for("idA", "CAD"), a, "a known project keeps its folder");
+        c.upsert_project(Project { folder_id: "idA".into(), name: "Renamed".into(), root: a });
+        assert_eq!(c.projects.len(), 2);
     }
 
     #[test]

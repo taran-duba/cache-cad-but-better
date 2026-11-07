@@ -43,7 +43,7 @@ pub enum Deferred {
     Pending { file_id: String, changeset: String },
     /// Open in SolidWorks (or part of a group with a file that is).
     Open { file_id: String },
-    /// Edited locally but no longer on Drive / no longer selected; left alone.
+    /// Edited locally but no longer on Drive; left alone.
     ModifiedOrphan { file_id: String },
 }
 
@@ -74,18 +74,6 @@ pub struct PullReport {
     pub deferred: Vec<Deferred>,
 }
 
-/// Selective sync: the nearest explicit choice on the file or an ancestor wins.
-pub fn is_selected(id: &str, files: &HashMap<&str, &RemoteFile>, sel: &BTreeMap<String, bool>) -> bool {
-    let mut cur = Some(id);
-    while let Some(c) = cur {
-        if let Some(&g) = sel.get(c) {
-            return g;
-        }
-        cur = files.get(c).and_then(|f| f.parent.as_deref());
-    }
-    false
-}
-
 impl<D: DriveApi> Vault<D> {
     fn is_locally_modified(&self, l: &LocalState) -> Result<bool> {
         let fp = l.synced_size.zip(l.synced_mtime);
@@ -110,17 +98,14 @@ impl<D: DriveApi> Vault<D> {
         let all = self.index.all_files()?;
         let map = PathMap::build(&self.root_id, &all);
         let by_id: HashMap<&str, &RemoteFile> = all.iter().map(|f| (f.id.as_str(), f)).collect();
-        let sel = self.index.selections()?;
         let locals: HashMap<String, LocalState> =
             self.index.all_local()?.into_iter().map(|l| (l.file_id.clone(), l)).collect();
         let mut plan = PullPlan::default();
 
-        // Files we have that moved, were removed, or were deselected.
+        // Files we have that moved or were removed. Every PC keeps the whole CAD folder, so
+        // anything still in it is wanted.
         for l in locals.values() {
-            // Files I have checked out stay even if their folder isn't ticked (e.g. parts checked
-            // out along with an assembly elsewhere).
-            let mine = by_id.get(l.file_id.as_str()).is_some_and(|f| self.i_hold_lock(f));
-            let wanted = map.contains(&l.file_id) && (mine || is_selected(&l.file_id, &by_id, &sel));
+            let wanted = map.contains(&l.file_id);
             let old = PathBuf::from(&l.rel_path);
             if !wanted {
                 if self.is_locally_modified(l)? {
@@ -150,7 +135,7 @@ impl<D: DriveApi> Vault<D> {
         let mut groups: BTreeMap<String, Vec<PullItem>> = BTreeMap::new();
         let mut loose = Vec::new();
         for f in &all {
-            if f.is_folder() || !map.contains(&f.id) || !is_selected(&f.id, &by_id, &sel) {
+            if f.is_folder() || !map.contains(&f.id) {
                 continue;
             }
             let Some(rev) = f.head_revision_id.clone() else { continue };
@@ -310,6 +295,9 @@ impl<D: DriveApi> Vault<D> {
     /// Refresh the index and get everything selected.
     pub async fn sync_down(&self) -> Result<PullReport> {
         self.refresh().await?;
+        if let Err(e) = self.load_team().await {
+            tracing::warn!(%e, "could not read the team settings; using the last copy");
+        }
         let plan = self.plan_pull()?;
         self.apply_pull(plan).await
     }
@@ -322,22 +310,21 @@ mod tests {
     use crate::sync::testutil::vault;
 
     #[tokio::test]
-    async fn pulls_selected_files_read_only() {
+    async fn every_pc_gets_the_whole_folder_read_only() {
         let drive = FakeDrive::new("a@team.org");
         let root = drive.drive_id.clone();
         let dt = drive.seed_folder(&root, "Drivetrain");
         let gear = drive.seed_file(&dt, "Gear.SLDPRT", b"g1");
         let other = drive.seed_folder(&root, "Climber");
-        drive.seed_file(&other, "Hook.SLDPRT", b"h1");
+        let hook = drive.seed_file(&other, "Hook.SLDPRT", b"h1");
 
         let fx = vault(&drive, "b@team.org", "pc-b");
         let v = &fx.vault;
-        v.refresh().await.unwrap();
-        v.index.set_selection(&dt, Some(true)).unwrap();
         let r = v.sync_down().await.unwrap();
-        assert_eq!(r.downloaded, 1, "only the selected folder");
+        assert_eq!(r.downloaded, 2, "nothing to tick: every file comes down");
         let p = v.root.join("Drivetrain/Gear.SLDPRT");
         assert_eq!(std::fs::read(&p).unwrap(), b"g1");
+        assert_eq!(std::fs::read(v.root.join("Climber/Hook.SLDPRT")).unwrap(), b"h1");
         assert!(localfs::is_read_only(&p), "not checked out, so read-only");
 
         drive.external_edit(&gear, b"g2");
@@ -346,11 +333,11 @@ mod tests {
         assert_eq!(std::fs::read(&p).unwrap(), b"g2");
         assert!(v.sync_down().await.unwrap().downloaded == 0, "up to date");
 
-        // Deselect: the local copy moves to the app's trash folder.
-        v.index.set_selection(&dt, Some(false)).unwrap();
+        // Deleted for the team: the local copy moves to the app's trash folder.
+        drive.as_user("a@team.org").trash_file(&hook).await.unwrap();
         let r = v.sync_down().await.unwrap();
         assert_eq!(r.removed, 1);
-        assert!(!p.exists());
+        assert!(!v.root.join("Climber/Hook.SLDPRT").exists());
         assert_eq!(std::fs::read_dir(v.trash_dir()).unwrap().count(), 1);
     }
 
@@ -361,7 +348,6 @@ mod tests {
         let gear = drive.seed_file(&root, "Gear.SLDPRT", b"g1");
         let fx = vault(&drive, "b@team.org", "pc-b");
         let v = &fx.vault;
-        v.index.set_selection(&root, Some(true)).unwrap();
         v.sync_down().await.unwrap();
         let p = v.root.join("Gear.SLDPRT");
 
@@ -390,7 +376,6 @@ mod tests {
         drive.seed_file(&arm, "Gear.SLDPRT", b"g1");
         let fx = vault(&drive, "b@team.org", "pc-b");
         let v = &fx.vault;
-        v.index.set_selection(&root, Some(true)).unwrap();
         v.sync_down().await.unwrap();
 
         // Delete one file, then the whole folder.
@@ -406,33 +391,5 @@ mod tests {
         let r = v.sync_down().await.unwrap();
         assert_eq!(r.restored, 1);
         assert!(p.exists() && localfs::is_read_only(&p));
-    }
-
-    #[test]
-    fn selection_inherits_from_nearest_ancestor() {
-        let mk = |id: &str, parent: Option<&str>| RemoteFile {
-            id: id.into(),
-            name: id.into(),
-            parent: parent.map(Into::into),
-            mime_type: String::new(),
-            md5: None,
-            size: None,
-            head_revision_id: None,
-            created_time: String::new(),
-            modified_time: String::new(),
-            trashed: false,
-            read_only: false,
-            app_properties: Default::default(),
-            last_modifier: None,
-        };
-        let files = [mk("a", Some("root")), mk("b", Some("a")), mk("c", Some("b"))];
-        let by_id: HashMap<&str, &RemoteFile> = files.iter().map(|f| (f.id.as_str(), f)).collect();
-        let mut sel = BTreeMap::new();
-        assert!(!is_selected("c", &by_id, &sel));
-        sel.insert("a".to_string(), true);
-        assert!(is_selected("c", &by_id, &sel));
-        sel.insert("b".to_string(), false);
-        assert!(!is_selected("c", &by_id, &sel));
-        assert!(is_selected("a", &by_id, &sel));
     }
 }

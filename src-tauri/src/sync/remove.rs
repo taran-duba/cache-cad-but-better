@@ -46,6 +46,7 @@ impl<D: DriveApi> Vault<D> {
         if f.is_folder() {
             return Err(Error::Conflict("folders can't be deleted from Permafrost yet; delete the files inside".into()));
         }
+        self.ensure_can_edit(&f)?;
         if let Some(l) = f.lock() {
             if !self.i_hold_lock(&f) {
                 return Err(Error::Locked { name: f.name, by: l.display_owner().to_string() });
@@ -97,7 +98,6 @@ mod tests {
         let a = vault(&drive, "alex@team.org", "pc-a");
         let b = vault(&drive, "blair@team.org", "pc-b");
         for v in [&a.vault, &b.vault] {
-            v.index.set_selection(&v.root_id, Some(true)).unwrap();
             v.sync_down().await.unwrap();
         }
         let (av, bv) = (&a.vault, &b.vault);

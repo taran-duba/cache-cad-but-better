@@ -9,6 +9,8 @@ pub mod file_ops;
 mod demo;
 pub mod logging;
 pub mod smoke;
+mod smoke_features;
+pub mod team_ops;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -157,10 +159,7 @@ impl AppState {
         let (folder_id, name) = (info.id, info.name);
 
         let mut cfg = self.config.read().await.clone();
-        let root = match (&cfg.folder_id, &cfg.root) {
-            (Some(saved), Some(root)) if *saved == folder_id => root.clone(),
-            _ => config::default_root(&name),
-        };
+        let root = cfg.root_for(&folder_id, &name);
         let vault_data = self.data_dir.join(&folder_id);
         std::fs::create_dir_all(&vault_data)?;
         std::fs::create_dir_all(&root)?;
@@ -178,6 +177,7 @@ impl AppState {
         };
 
         tracing::info!(folder = %name, shared_drive = ?vault.scope, "CAD folder opened");
+        cfg.upsert_project(config::Project { folder_id: folder_id.clone(), name: name.clone(), root: root.clone() });
         cfg.folder_id = Some(folder_id);
         cfg.root = Some(root);
         cfg.save(&self.config_path)?;

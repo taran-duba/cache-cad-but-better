@@ -7,7 +7,12 @@ For students, using Permafrost is:
 3. Pick your team's CAD folder: browse to it and click **Use this folder**, or paste a link to it.
    It can be a whole shared drive, a folder inside one, a folder in My Drive, or one shared with
    you. Only that folder syncs.
-4. In **Vault**, tick **Get** on the folders you work on, or click **Select all** to get everything.
+4. Wait for the first sync. Every PC gets the whole CAD folder and keeps it up to date; there's
+   nothing to tick. Files you haven't checked out are read-only.
+5. One person (the CADmin) turns on roles: **Settings › Make me a CADmin**, then in **Vault**
+   clicks **Editors** on each subsystem's folder (or assembly) and lists who may edit it. Set
+   **Editors** on the top-level assembly to nobody so only CADmins change how subsystems fit
+   together. Skip this step and anyone can check out anything.
 
 Two people do a one-time step first.
 

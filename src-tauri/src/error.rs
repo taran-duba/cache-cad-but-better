@@ -14,6 +14,8 @@ pub enum Error {
     InUse { name: String, by: Vec<String> },
     #[error("your Google sign-in expired; sign in again")]
     SignInExpired,
+    #[error("{name} is in {area}, which only {who} can edit. Ask a CADmin if you need to change it")]
+    NotAllowed { name: String, area: String, who: String },
     #[error("you don't have {0} checked out")]
     NotCheckedOut(String),
     #[error("conflict: {0}")]
