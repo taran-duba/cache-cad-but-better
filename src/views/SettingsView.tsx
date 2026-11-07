@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, errorText, Status } from "../api";
 import type { ToastApi } from "../Toasts";
 import type { UpdaterState } from "../updater";
+import { TeamSettings } from "./TeamSettings";
 
 export function SettingsView({
   status,
@@ -51,17 +52,56 @@ export function SettingsView({
         </button>
       </div>
 
+      {status.projects.length > 0 && (
+        <div className="setting-block">
+          <div className="setting-label">Projects</div>
+          <p className="muted small">
+            Each project is its own CAD folder on Drive with its own folder on this PC, for example this season's robot and
+            last season's. Switch from the top bar. Removing one only forgets it here: its files stay on this PC and on Drive.
+          </p>
+          <ul className="plain">
+            {status.projects.map((p) => (
+              <li key={p.id}>
+                <strong>{p.name}</strong> {p.active && <span className="pill pill-info">open</span>}{" "}
+                <span className="muted small">{p.root}</span>
+                {!p.active && (
+                  <button className="btn btn-small" disabled={busy} onClick={() => run(() => api.openProject(p.id))}>
+                    Open
+                  </button>
+                )}
+                <button
+                  className="btn btn-small btn-ghost"
+                  disabled={busy}
+                  onClick={() => window.confirm(`Forget ${p.name} on this PC? Its files stay where they are.`) && run(() => api.removeProject(p.id))}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="setting-row">
         <div>
-          <div className="setting-label">CAD folder</div>
-          <div>{status.folderName}</div>
+          <div className="setting-label">{status.projects.length > 0 ? "Add a project" : "CAD folder"}</div>
+          <div>{status.projects.length > 0 ? "Open another CAD folder from Google Drive." : status.folderName}</div>
         </div>
-        {!status.demo && (
-          <button className="btn" onClick={() => run(api.switchDrive)} disabled={busy}>
-            Change
-          </button>
-        )}
+        <div className="row">
+          {!status.demo && (
+            <button className="btn" onClick={() => api.openInDrive(null).catch((e) => toasts.error(errorText(e)))}>
+              Open on Drive
+            </button>
+          )}
+          {!status.demo && (
+            <button className="btn" onClick={() => run(api.switchDrive)} disabled={busy}>
+              {status.projects.length > 0 ? "Add…" : "Change"}
+            </button>
+          )}
+        </div>
       </div>
+
+      <TeamSettings status={status} onChanged={onChanged} toasts={toasts} />
 
       <div className="setting-row">
         <div>

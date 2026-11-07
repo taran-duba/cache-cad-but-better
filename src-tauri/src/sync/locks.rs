@@ -42,10 +42,11 @@ impl<D: DriveApi> Vault<D> {
         if f.is_folder() {
             return Err(Error::Conflict("folders can't be checked out".into()));
         }
+        if let Some(l) = f.lock().filter(|_| self.i_hold_lock(&f)) {
+            return Ok(l);
+        }
+        self.ensure_can_edit(&f)?;
         if let Some(l) = f.lock() {
-            if self.i_hold_lock(&f) {
-                return Ok(l);
-            }
             return Err(Error::Locked { name: f.name.clone(), by: l.display_owner().to_string() });
         }
         let rel = self
@@ -149,8 +150,12 @@ impl<D: DriveApi> Vault<D> {
     }
 
     /// Remove someone else's lock (e.g. they left for the season with files
-    /// checked out). Their unsaved work stays on their machine.
+    /// checked out). Their unsaved work stays on their machine. Only people who
+    /// may edit the file can take it over.
     pub async fn break_lock(&self, file_id: &str) -> Result<RemoteFile> {
+        let f = self.drive.get_file(file_id).await?;
+        self.index.apply_remote(std::slice::from_ref(&f), &[])?;
+        self.ensure_can_edit(&f)?;
         let patch = Self::unlock_patch().unset(props::PENDING_CHANGESET);
         let updated = self.drive.update_metadata(file_id, patch).await?;
         self.index.apply_remote(std::slice::from_ref(&updated), &[])?;
@@ -178,7 +183,6 @@ mod tests {
         let a = vault(&drive, "alex@team.org", "pc-a");
         let b = vault(&drive, "blair@team.org", "pc-b");
         for v in [&a.vault, &b.vault] {
-            v.index.set_selection(&v.root_id, Some(true)).unwrap();
             v.sync_down().await.unwrap();
         }
 
@@ -213,7 +217,6 @@ mod tests {
         drive.update_metadata(&gear, old).await.unwrap();
 
         let b = vault(&drive, "blair@team.org", "pc-b");
-        b.vault.index.set_selection(&b.vault.root_id, Some(true)).unwrap();
         b.vault.sync_down().await.unwrap();
 
         match b.vault.check_out(&gear).await {
@@ -232,7 +235,6 @@ mod tests {
     async fn check_out_gets_latest_first() {
         let (drive, gear) = setup().await;
         let a = vault(&drive, "alex@team.org", "pc-a");
-        a.vault.index.set_selection(&a.vault.root_id, Some(true)).unwrap();
         a.vault.sync_down().await.unwrap();
         drive.external_edit(&gear, b"g2");
         a.vault.check_out(&gear).await.unwrap();
@@ -243,7 +245,6 @@ mod tests {
     async fn race_loser_is_detected() {
         let (drive, gear) = setup().await;
         let a = vault(&drive, "alex@team.org", "pc-a");
-        a.vault.index.set_selection(&a.vault.root_id, Some(true)).unwrap();
         a.vault.sync_down().await.unwrap();
         a.vault.check_out(&gear).await.unwrap();
 
@@ -265,7 +266,6 @@ mod tests {
     async fn undo_with_discard_restores_latest() {
         let (drive, gear) = setup().await;
         let a = vault(&drive, "alex@team.org", "pc-a");
-        a.vault.index.set_selection(&a.vault.root_id, Some(true)).unwrap();
         a.vault.sync_down().await.unwrap();
         a.vault.check_out(&gear).await.unwrap();
         let p = a.vault.root.join("Gear.SLDPRT");

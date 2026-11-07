@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { ago, api, CheckOutReport, Entry, errorText, who } from "../api";
+import { ago, api, CheckOutReport, editorsText, Entry, errorText, parseEmails, Status, who } from "../api";
 import { Skeleton, Spinner } from "../Spinner";
 import type { ToastApi } from "../Toasts";
 
@@ -8,7 +8,7 @@ const KIND_ICON: Record<string, string> = { part: "▣", assembly: "◈", drawin
 const STATUS_LABEL: Record<Entry["status"], [string, string]> = {
   synced: ["Up to date", "pill-ok"],
   outdated: ["Update waiting", "pill-info"],
-  not_synced: ["Not on this PC", "pill-dim"],
+  not_synced: ["Downloading…", "pill-dim"],
   modified: ["Edited", "pill-warn"],
   pending: ["Being pushed", "pill-info"],
 };
@@ -25,6 +25,10 @@ function checkOutMessage(r: CheckOutReport, lead: string): [string, boolean] {
   let msg = lead;
   if (r.depsCheckedOut) msg += `, including ${r.depsCheckedOut} part(s) your assemblies use`;
   msg += ".";
+  if (r.notYours.length) {
+    const shown = r.notYours.slice(0, 5).join(", ");
+    msg += ` Left ${r.notYours.length} file(s) owned by other areas read-only: ${shown}${r.notYours.length > 5 ? "…" : ""}.`;
+  }
   if (r.lockedByOthers.length) {
     const shown = r.lockedByOthers.slice(0, 5).join(", ");
     msg += ` Already checked out by a teammate: ${shown}${r.lockedByOthers.length > 5 ? ` and ${r.lockedByOthers.length - 5} more` : ""}.`;
@@ -38,7 +42,9 @@ export function VaultView({
   onChanged,
   toasts,
   syncing,
+  status,
 }: {
+  status: Status;
   revision: number;
   onChanged: () => void;
   toasts: ToastApi;
@@ -51,6 +57,8 @@ export function VaultView({
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [helpFor, setHelpFor] = useState<string | null>(null);
+  /** CADmin editing who may edit a folder or file. */
+  const [areaEdit, setAreaEdit] = useState<{ id: string; value: string } | null>(null);
   const [confirming, setConfirming] = useState<{
     id: string;
     kind: "undo" | "delete" | "in-use";
@@ -103,7 +111,32 @@ export function VaultView({
     }
   };
 
-  const toggleGet = (e: Entry) => act(e.id, () => api.setSelection(e.id, !e.selected));
+  const checkOut = (e: Entry, withParts: boolean) =>
+    act(e.id, async () => {
+      if (withParts) {
+        const r = await api.checkOutWithRefs(e.id);
+        const [msg, warn] = checkOutMessage(r, `Checked out ${e.name}`);
+        (warn ? toasts.warn : toasts.info)(msg);
+      } else {
+        await api.checkOut(e.id);
+        toasts.info(`Checked out ${e.name} by itself. The parts and subassemblies it uses stay with their owners.`);
+      }
+    });
+
+  const saveArea = (e: Entry, editors: string[] | null) =>
+    act(
+      e.id,
+      async () => {
+        await api.setArea(e.id, editors);
+        setAreaEdit(null);
+      },
+      editors === null
+        ? `${e.name} now follows the folder above it.`
+        : `${e.name}: ${editorsText(editors)} can edit it now (and CADmins).`,
+    );
+
+  const canAssign = status.rolesOn && status.isAdmin;
+  const cols = status.rolesOn ? 6 : 5;
 
   const shown = (rows ?? []).filter((r) => r.name.toLowerCase().includes(filter.toLowerCase()));
 
@@ -123,21 +156,7 @@ export function VaultView({
         <button
           className="btn btn-small"
           disabled={busy !== null || rows === null || rows.length === 0}
-          title="Download everything in this folder, including subfolders, to this PC"
-          onClick={() =>
-            act(
-              "select-all",
-              () => api.selectAll(current.id),
-              `Getting everything in ${current.name}. It will download on the next sync.`,
-            )
-          }
-        >
-          Select all
-        </button>
-        <button
-          className="btn btn-small"
-          disabled={busy !== null || rows === null || rows.length === 0}
-          title="Select everything in this folder and check out every file nobody else has"
+          title="Check out every file in this folder (and subfolders) that nobody else has and you may edit"
           onClick={() =>
             act("select-all", async () => {
               const r = await api.checkOutAll(current.id);
@@ -176,11 +195,9 @@ export function VaultView({
         <table className="files">
           <thead>
             <tr>
-              <th className="col-get" title="Download to this PC">
-                Get
-              </th>
               <th>Name</th>
               <th>Status</th>
+              {status.rolesOn && <th title="Who may edit it (CADmins can edit everything)">Editors</th>}
               <th>Checked out</th>
               <th>Last change</th>
               <th className="col-actions" />
@@ -190,16 +207,6 @@ export function VaultView({
             {shown.map((e) => (
               <Fragment key={e.id}>
               <tr className={busy === e.id ? "busy" : ""}>
-                <td className="col-get">
-                  <input
-                    type="checkbox"
-                    checked={e.selected}
-                    className={e.selection === null ? "inherited" : ""}
-                    title={e.selection === null ? "Inherited from the folder" : "Set on this item"}
-                    onChange={() => toggleGet(e)}
-                    aria-label={`Get ${e.name}`}
-                  />
-                </td>
                 <td>
                   {e.isFolder ? (
                     <button
@@ -223,7 +230,7 @@ export function VaultView({
                   )}
                 </td>
                 <td>
-                  {!e.isFolder && e.selected && e.status === "modified" && !e.mine ? (
+                  {!e.isFolder && e.status === "modified" && !e.mine ? (
                     <span
                       className="pill pill-bad"
                       title="These edits can't be pushed because you don't have the file checked out (maybe a teammate took over the lock). Use File › Save As in SolidWorks to keep them under a new name."
@@ -231,10 +238,25 @@ export function VaultView({
                       Edited, not checked out
                     </span>
                   ) : (
-                    !e.isFolder &&
-                    e.selected && <span className={`pill ${STATUS_LABEL[e.status][1]}`}>{STATUS_LABEL[e.status][0]}</span>
+                    !e.isFolder && <span className={`pill ${STATUS_LABEL[e.status][1]}`}>{STATUS_LABEL[e.status][0]}</span>
                   )}
                 </td>
+                {status.rolesOn && (
+                  <td className="small">
+                    <span
+                      className={e.canEdit ? "muted" : ""}
+                      title={
+                        e.area
+                          ? `Set on ${e.area.path || "the whole CAD folder"}${e.area.id === e.id ? " (this item)" : ""}`
+                          : "Not in any area: anyone can edit it"
+                      }
+                    >
+                      {e.area ? editorsText(e.area.editors) : "Anyone"}
+                    </span>
+                    {!e.canEdit && <span className="pill pill-dim"> View only</span>}
+                    {e.area?.id === e.id && <span className="pill pill-info"> Area</span>}
+                  </td>
+                )}
                 <td>
                   {e.lock &&
                     (e.mine ? (
@@ -260,7 +282,7 @@ export function VaultView({
                     </span>
                   ) : (
                     <>
-                  {!e.isFolder && e.selected && e.status !== "not_synced" && confirming?.id !== e.id && (
+                  {!e.isFolder && e.status !== "not_synced" && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small"
                       disabled={busy !== null}
@@ -270,19 +292,28 @@ export function VaultView({
                       Open
                     </button>
                   )}
-                  {!e.isFolder && !e.lock && confirming?.id !== e.id && (
+                  {!e.isFolder && !e.lock && e.canEdit && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small"
                       disabled={busy !== null}
-                      onClick={() =>
-                        act(e.id, async () => {
-                          const r = await api.checkOutWithRefs(e.id);
-                          const [msg, warn] = checkOutMessage(r, `Checked out ${e.name}`);
-                          (warn ? toasts.warn : toasts.info)(msg);
-                        })
+                      title={
+                        e.kind === "assembly"
+                          ? "Just this assembly: its mates, positions and which parts it uses. Parts and subassemblies stay with whoever owns them."
+                          : undefined
                       }
+                      onClick={() => checkOut(e, e.kind !== "assembly")}
                     >
                       Check out
+                    </button>
+                  )}
+                  {!e.isFolder && !e.lock && e.canEdit && e.kind === "assembly" && confirming?.id !== e.id && (
+                    <button
+                      className="btn btn-small"
+                      disabled={busy !== null}
+                      title="This assembly plus every part and subassembly it uses that you're allowed to edit"
+                      onClick={() => checkOut(e, true)}
+                    >
+                      + parts
                     </button>
                   )}
                   {!e.isFolder && e.mine && confirming?.id !== e.id && (
@@ -307,7 +338,23 @@ export function VaultView({
                       Need it?
                     </button>
                   )}
-                  {(e.isFolder || !e.lock || e.mine) && confirming?.id !== e.id && (
+                  {canAssign && confirming?.id !== e.id && (
+                    <button
+                      className="btn btn-small btn-ghost"
+                      disabled={busy !== null}
+                      title="Choose who may edit this (CADmins always can)"
+                      onClick={() =>
+                        setAreaEdit(
+                          areaEdit?.id === e.id
+                            ? null
+                            : { id: e.id, value: e.area?.id === e.id ? e.area.editors.join(", ") : "" },
+                        )
+                      }
+                    >
+                      Editors
+                    </button>
+                  )}
+                  {e.canEdit && (e.isFolder || !e.lock || e.mine) && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small btn-ghost"
                       disabled={busy !== null}
@@ -323,7 +370,7 @@ export function VaultView({
                       Rename
                     </button>
                   )}
-                  {!e.isFolder && (!e.lock || e.mine) && confirming?.id !== e.id && (
+                  {!e.isFolder && e.canEdit && (!e.lock || e.mine) && confirming?.id !== e.id && (
                     <button
                       className="btn btn-small btn-ghost"
                       disabled={busy !== null}
@@ -377,7 +424,7 @@ export function VaultView({
               </tr>
               {renaming?.id === e.id && (
                 <tr className="help-row">
-                  <td colSpan={6}>
+                  <td colSpan={cols}>
                     <form
                       className="rename"
                       onSubmit={(ev) => {
@@ -418,12 +465,60 @@ export function VaultView({
                   </td>
                 </tr>
               )}
+              {areaEdit?.id === e.id && (
+                <tr className="help-row">
+                  <td colSpan={cols}>
+                    <form
+                      className="rename"
+                      onSubmit={(ev) => {
+                        ev.preventDefault();
+                        saveArea(e, parseEmails(areaEdit.value));
+                      }}
+                    >
+                      <label className="small">
+                        Who may edit {e.isFolder ? "everything in" : ""} {e.name}? Google account emails, separated by
+                        commas. Leave empty for CADmins only.
+                        <input
+                          className="search rename-input"
+                          value={areaEdit.value}
+                          autoFocus
+                          placeholder="alex@team.org, blair@team.org"
+                          onChange={(ev) => setAreaEdit({ id: e.id, value: ev.target.value })}
+                          aria-label={`Editors of ${e.name}`}
+                        />
+                      </label>
+                      <button className="btn btn-small" type="submit" disabled={busy !== null}>
+                        Save
+                      </button>
+                      {e.area?.id === e.id && (
+                        <button
+                          className="btn btn-small btn-ghost"
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => saveArea(e, null)}
+                        >
+                          Remove (follow the folder above)
+                        </button>
+                      )}
+                      <button className="btn btn-small btn-ghost" type="button" onClick={() => setAreaEdit(null)}>
+                        Cancel
+                      </button>
+                      <p className="muted small">
+                        Everyone still gets every file, read-only. Only these people (and CADmins) can check{" "}
+                        {e.isFolder ? "files in it" : "it"} out. A folder or file inside can have its own editors, and the
+                        nearest one wins. Currently: {e.area ? `${editorsText(e.area.editors)} (set on ${e.area.path || "the CAD folder"})` : "anyone"}.
+                      </p>
+                    </form>
+                  </td>
+                </tr>
+              )}
               {helpFor === e.id && e.lock && !e.mine && (
                 <tr className="help-row">
-                  <td colSpan={6}>
+                  <td colSpan={cols}>
                     <LockHelp
                       entry={e}
                       busy={busy !== null}
+                      canTakeOver={e.canEdit}
                       onClose={() => setHelpFor(null)}
                       onTakeOver={() =>
                         act(
@@ -461,12 +556,14 @@ function isStale(lockedAt: string) {
 function LockHelp({
   entry,
   busy,
+  canTakeOver,
   onClose,
   onTakeOver,
   toasts,
 }: {
   entry: Entry;
   busy: boolean;
+  canTakeOver: boolean;
   onClose: () => void;
   onTakeOver: () => void;
   toasts: ToastApi;
@@ -507,6 +604,12 @@ function LockHelp({
             Copy a message to send them
           </button>
         </li>
+        {!canTakeOver ? (
+          <li>
+            <strong>Can't reach them?</strong> Ask a CADmin: only {entry.area ? editorsText(entry.area.editors) : "its editors"}{" "}
+            and CADmins can take this file over.
+          </li>
+        ) : (
         <li>
           <strong>Can't reach them?</strong> (They left the shop, their laptop is off, they graduated…) You can take the
           file over. You'll get the latest pushed version.
@@ -531,6 +634,7 @@ function LockHelp({
             </div>
           )}
         </li>
+        )}
       </ol>
     </div>
   );

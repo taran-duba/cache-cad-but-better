@@ -23,7 +23,7 @@ export function Onboarding({
           Permafrost
         </div>
         {status.account ? (
-          <FolderPicker account={status.accountName || status.account} onChanged={onChanged} toasts={toasts} />
+          <FolderPicker account={status.accountName || status.account} status={status} onChanged={onChanged} toasts={toasts} />
         ) : (
           <Welcome status={status} onChanged={onChanged} toasts={toasts} />
         )}
@@ -105,11 +105,24 @@ interface Crumb {
   pickable: boolean;
 }
 
-function FolderPicker({ account, onChanged, toasts }: { account: string; onChanged: () => void; toasts: ToastApi }) {
+function FolderPicker({
+  account,
+  status,
+  onChanged,
+  toasts,
+}: {
+  account: string;
+  status: Status;
+  onChanged: () => void;
+  toasts: ToastApi;
+}) {
   const [path, setPath] = useState<Crumb[]>([]); // empty = the starting list
   const [items, setItems] = useState<{ id: string; name: string; pickable: boolean; hint?: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState("");
+  /** Name for a new folder being made here, or null when not making one. */
+  const [newName, setNewName] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const here = path[path.length - 1];
 
   useEffect(() => {
@@ -137,6 +150,20 @@ function FolderPicker({ account, onChanged, toasts }: { account: string; onChang
     };
   }, [here?.id]);
 
+  const createHere = async () => {
+    if (!here || newName === null) return;
+    setCreating(true);
+    try {
+      const f = await api.createDriveFolder(here.id, newName);
+      setNewName(null);
+      setPath([...path, { id: f.id, name: f.name, pickable: true }]);
+    } catch (e) {
+      toasts.error(errorText(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const choose = async (input: string) => {
     setBusy(true);
     try {
@@ -157,6 +184,36 @@ function FolderPicker({ account, onChanged, toasts }: { account: string; onChang
           Use a different account
         </button>
       </p>
+      {status.projects.length > 0 && (
+        <div className="setting-block">
+          <div className="setting-label">Your projects</div>
+          <ul className="drive-list">
+            {status.projects.map((p) => (
+              <li key={p.id}>
+                <button
+                  className="drive"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    api
+                      .openProject(p.id)
+                      .then(onChanged)
+                      .catch((e) => toasts.error(errorText(e)))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  <span className="drive-icon" aria-hidden>
+                    ◆
+                  </span>
+                  {p.name}
+                  <span className="muted small"> · {p.root}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="small muted">Or add another project below.</p>
+        </div>
+      )}
       <p className="small muted">
         Pick a whole shared drive, or just one folder inside it (or in My Drive, or shared with you). Only that
         folder syncs.
@@ -194,6 +251,35 @@ function FolderPicker({ account, onChanged, toasts }: { account: string; onChang
           {busy ? "Opening…" : `Use “${here.name}”`}
         </button>
       )}
+
+      {here?.pickable &&
+        (newName === null ? (
+          <button className="btn picker-use" disabled={busy || creating} onClick={() => setNewName("")}>
+            New folder here…
+          </button>
+        ) : (
+          <form
+            className="inline-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createHere();
+            }}
+          >
+            <input
+              value={newName}
+              autoFocus
+              placeholder="e.g. 2027 Robot CAD"
+              onChange={(e) => setNewName(e.target.value)}
+              aria-label="New folder name"
+            />
+            <button className="btn" type="submit" disabled={busy || creating || newName.trim() === ""}>
+              {creating ? "Creating…" : "Create"}
+            </button>
+            <button className="btn btn-ghost" type="button" onClick={() => setNewName(null)}>
+              Cancel
+            </button>
+          </form>
+        ))}
 
       {busy && (
         <p className="status-banner">

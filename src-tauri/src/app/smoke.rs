@@ -20,12 +20,23 @@ use crate::sync::localfs;
 const ENV: &str = "CADSYNC_SMOKE";
 const HOLD_ENV: &str = "CADSYNC_SMOKE_HOLD_SECS";
 const UI_TIMEOUT: Duration = Duration::from_secs(90);
+const UI_DRIVE_TIMEOUT: Duration = Duration::from_secs(150);
 const SIDECAR_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub struct Smoke {
     ui_ready: AtomicBool,
     notify: Notify,
+    ui_steps: std::sync::Mutex<Option<Vec<UiStep>>>,
+    ui_done: Notify,
+}
+
+/// One thing the UI driver (`src/smokeDriver.ts`) clicked through.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct UiStep {
+    name: String,
+    ok: bool,
+    detail: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -40,7 +51,12 @@ struct SmokeResult {
     /// A Google OAuth client was built into this app (only the id's shape is
     /// reported, never the id or secret).
     sign_in_built_in: bool,
+    /// Feature checks that passed (roles/areas, full mirror, projects).
+    features: Vec<String>,
     ui_ready: bool,
+    /// Number of UI steps that passed, and each step's outcome.
+    ui_steps_passed: usize,
+    ui_steps: Vec<UiStep>,
     elapsed_ms: u128,
     error: Option<String>,
 }
@@ -50,10 +66,22 @@ pub fn requested() -> Option<PathBuf> {
 }
 
 /// Called by the UI once it has rendered and talked to Rust.
-pub fn mark_ui_ready(app: &AppHandle) {
+/// Returns whether this is a smoke run, in which case the UI drives itself and reports back.
+pub fn mark_ui_ready(app: &AppHandle) -> bool {
+    match app.try_state::<Smoke>() {
+        Some(s) => {
+            s.ui_ready.store(true, Ordering::SeqCst);
+            s.notify.notify_one();
+            true
+        }
+        None => false,
+    }
+}
+
+pub fn set_ui_steps(app: &AppHandle, steps: Vec<UiStep>) {
     if let Some(s) = app.try_state::<Smoke>() {
-        s.ui_ready.store(true, Ordering::SeqCst);
-        s.notify.notify_one();
+        *s.ui_steps.lock().unwrap() = Some(steps);
+        s.ui_done.notify_one();
     }
 }
 
@@ -125,6 +153,21 @@ async fn run(app: &AppHandle, r: &mut SmokeResult) -> Result<(), String> {
             .map_err(|_| "the UI never reported it was ready (webview didn't load?)".to_string())?;
     }
     r.ui_ready = true;
+
+    // The UI clicks through the real screens by itself and reports each step.
+    let reported = smoke.ui_steps.lock().unwrap().is_some();
+    if !reported {
+        tokio::time::timeout(UI_DRIVE_TIMEOUT, smoke.ui_done.notified())
+            .await
+            .map_err(|_| "the UI driver never finished clicking through the app".to_string())?;
+    }
+    r.ui_steps = smoke.ui_steps.lock().unwrap().clone().unwrap_or_default();
+    r.ui_steps_passed = r.ui_steps.iter().filter(|s| s.ok).count();
+    if let Some(bad) = r.ui_steps.iter().find(|s| !s.ok) {
+        return Err(format!("UI step \"{}\" failed: {}", bad.name, bad.detail.clone().unwrap_or_default()));
+    }
+
+    r.features = super::smoke_features::run(&state).await?;
 
     r.sign_in_built_in = crate::drive::auth::OAuthClient::built_in()
         .is_some_and(|c| c.client_id.ends_with(".apps.googleusercontent.com"));

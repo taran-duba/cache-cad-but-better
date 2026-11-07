@@ -9,6 +9,8 @@ pub mod file_ops;
 mod demo;
 pub mod logging;
 pub mod smoke;
+mod smoke_features;
+pub mod team_ops;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,6 +43,8 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub data_dir: PathBuf,
     pub demo: std::sync::atomic::AtomicBool,
+    /// Which demo project is open (an id from `demo::PROJECTS`).
+    pub demo_project: std::sync::Mutex<String>,
     /// How many sync passes are running (background poll and "Sync now" can overlap).
     /// The window shows its sync indicator while this is above zero.
     pub syncing: std::sync::atomic::AtomicUsize,
@@ -89,6 +93,7 @@ impl AppState {
             config_path,
             data_dir,
             demo: Default::default(),
+            demo_project: std::sync::Mutex::new("demo".into()),
             syncing: Default::default(),
             restoring: Default::default(),
             sign_in_expired: Default::default(),
@@ -157,10 +162,7 @@ impl AppState {
         let (folder_id, name) = (info.id, info.name);
 
         let mut cfg = self.config.read().await.clone();
-        let root = match (&cfg.folder_id, &cfg.root) {
-            (Some(saved), Some(root)) if *saved == folder_id => root.clone(),
-            _ => config::default_root(&name),
-        };
+        let root = cfg.root_for(&folder_id, &name);
         let vault_data = self.data_dir.join(&folder_id);
         std::fs::create_dir_all(&vault_data)?;
         std::fs::create_dir_all(&root)?;
@@ -178,6 +180,7 @@ impl AppState {
         };
 
         tracing::info!(folder = %name, shared_drive = ?vault.scope, "CAD folder opened");
+        cfg.upsert_project(config::Project { folder_id: folder_id.clone(), name: name.clone(), root: root.clone() });
         cfg.folder_id = Some(folder_id);
         cfg.root = Some(root);
         cfg.save(&self.config_path)?;
@@ -217,12 +220,30 @@ impl AppState {
     }
 
     pub async fn open_demo(&self) -> Result<()> {
-        let dir = self.data_dir.join("demo");
-        let vault = demo::build(&dir).await?;
+        self.open_demo_project("demo").await
+    }
+
+    /// Open one of the demo's projects (see `demo::PROJECTS`).
+    pub async fn open_demo_project(&self, id: &str) -> Result<()> {
+        let &(id, name) = demo::PROJECTS.iter().find(|p| p.0 == id).ok_or_else(|| Error::NotFound("that demo project".into()))?;
+        // A fresh folder every time: a sync still running for the previous demo vault must not
+        // write into (or wipe) this one's index.
+        static OPENS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let demo_root = self.data_dir.join("demo");
+        let dir = demo_root.join(format!("{id}-{n}"));
+        let vault = demo::build(&dir, id).await?;
+        *self.demo_project.lock().unwrap() = id.to_string();
         *self.account.write().await = Some(Account { email: vault.me.clone(), name: vault.my_name.clone() });
         *self.vault.write().await = Some(Arc::new(vault));
-        *self.folder_name.write().await = Some("Demo Team Drive".into());
+        *self.folder_name.write().await = Some(name.into());
         self.demo.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Tidy up earlier demo folders (best effort: one may still be in use for a moment).
+        if let Ok(rd) = std::fs::read_dir(&demo_root) {
+            for e in rd.flatten().filter(|e| e.path() != dir) {
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
         Ok(())
     }
 

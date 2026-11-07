@@ -24,8 +24,7 @@ purpose. A bug you report now is a bug that doesn't cost us a file during build 
 2. Open **Permafrost**, click **Sign in with Google**, and allow Drive access. Google may say
    "Google hasn't verified this app". Click **Advanced**, then **Continue**.
 3. Pick the **test folder**: browse to it (or paste its link) and click **Use this folder**.
-4. In **Vault**, click **Select all** to download everything, then **Sync now** if nothing shows
-   up after 15 seconds.
+4. Wait for the first sync (or click **Sync now**). Everything downloads; there's nothing to tick.
 
 **Check:**
 - [ ] Sign-in works and your name/email shows at the top.
@@ -40,13 +39,12 @@ purpose. A bug you report now is a bug that doesn't cost us a file during build 
 ## Test 1: Browsing and getting files
 
 1. In **Vault**, open a folder, then use the **Filter this folder** box.
-2. Untick **Get** on one folder, then click **Sync now**. Tick it again and sync.
-3. Click **Select all** inside a subfolder.
+2. **Person B:** add a new folder with a part in it and push it. **Person A:** wait 15 seconds.
 
 **Check:**
 - [ ] Browsing is instant (no waiting on the network).
-- [ ] Unticking a folder stops its files from being kept up to date, and ticking it brings them back.
-- [ ] **Select all** gets the whole folder including subfolders, even ones you'd unticked before.
+- [ ] Every file in the test folder is on both PCs, without ticking anything.
+- [ ] Person B's new folder and part show up on Person A's PC by themselves.
 
 ## Test 2: Check out, edit and push (the everyday workflow)
 
@@ -73,8 +71,9 @@ purpose. A bug you report now is a bug that doesn't cost us a file during build 
 
 ## Test 3: Check out takes the referenced parts too
 
-**Person A:** click **Check out** on the **assembly**. Include at least one part from a
-**different folder** in the assembly.
+**Person A:** click **+ parts** on the **assembly**. Include at least one part from a
+**different folder** in the assembly. (Plain **Check out** on an assembly takes just the
+assembly; Test 12 covers that.)
 
 **Check:**
 - [ ] A message says it checked out the assembly "including N part(s) your assemblies use", and
@@ -200,6 +199,38 @@ Close the test assembly in SolidWorks on **both** PCs first.
 - [ ] How long does the first sync of a big folder take? How many files?
 
 ---
+
+## Test 12: Roles: CADmins and areas
+
+1. **Person A:** **Settings › Make me a CADmin**.
+2. **Person A:** in **Vault**, click **Editors** on one subsystem folder and enter Person B's
+   email. Click **Editors** on the top-level assembly and leave it empty (CADmins only).
+3. **Person B:** wait 15 seconds, then try to check out a file in that subsystem, and then the
+   top-level assembly.
+4. **Person A:** click **Check out** (not **+ parts**) on the top-level assembly, move a
+   subassembly in SolidWorks, save, and push.
+5. **Person B:** at the same time, edit and push a part inside their subsystem.
+
+**Check:**
+- [ ] The **Editors** column shows who edits each file; the top bar shows **CADmin** for Person A.
+- [ ] Person B can check out their subsystem's files, but the top-level assembly and other
+  subsystems show **View only** with no **Check out** button.
+- [ ] Person A's plain **Check out** locks only the top-level assembly, so Person B can still
+  work on their parts at the same time.
+- [ ] Both pushes arrive on both PCs, and the top-level assembly opens with Person B's new part.
+- [ ] Person B can't take over a file outside their area (no **Take it over** button).
+- [ ] **Settings › Team** lists the CADmins and areas.
+
+## Test 13: Several projects (in-season and off-season)
+
+1. **Settings › Add…**, then pick a second test folder (make one with **New folder here…**).
+2. Wait for it to sync. A project picker appears in the top bar.
+3. Switch between the two from the top bar. Check out a file in one, switch to the other, switch back.
+
+**Check:**
+- [ ] Each project has its own folder on the PC (**Settings › Projects** shows both paths) and its own files, locks and History.
+- [ ] Switching back is quick, and the file you checked out is still checked out.
+- [ ] **Remove** on a project forgets it but leaves its files on the PC and on Drive.
 
 ## What to send back
 

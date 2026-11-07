@@ -99,7 +99,7 @@ On **both** PCs:
 2. Click **Sign in with Google**, sign in as Alex (PC A) or Blair (PC B), accept the
    "unverified app" warning, and allow Drive access.
 3. Pick the **test** folder: browse to it (or paste a link) and click **Use this folder**.
-4. In **Vault**, tick **Get** on the top-level folder, or click **Select all** in the toolbar.
+4. Wait for the first sync. Everything downloads; there's nothing to tick.
 
 **Expected:**
 - [ ] The browser opens Google sign-in. Afterwards the app shows your shared drives, My Drive and
@@ -111,8 +111,7 @@ On **both** PCs:
 - [ ] After a sync (click **Sync now**, or wait 15 s), files appear under `C:\CAD\Test Drive`.
 - [ ] Files you haven't checked out are **read-only**: right-click › Properties shows
   *Read-only* ticked.
-- [ ] Untick **Get** on a subfolder, then click **Select all** in the folder above it: the
-  subfolder is ticked again and downloads on the next sync.
+- [ ] Every file in the test folder, in every subfolder, is on both PCs.
 
 ## Part 4: Drive behaviour (the riskiest assumptions)
 
@@ -202,9 +201,9 @@ it shows, and then undo the change.
 ### 5c. Checking out takes an assembly's parts along
 
 1. Put one part the assembly uses in a different folder (rename/move it as in 6j, or build a
-   second assembly that uses a part from another folder). Untick **Get** on that other folder.
+   second assembly that uses a part from another folder).
 2. **PC B:** check out one of the assembly's parts.
-3. **PC A:** click **Check out** on the assembly.
+3. **PC A:** click **+ parts** on the assembly.
 4. **PC A:** undo all check-outs, then open the test folder and click **Check out all**.
 5. **PC A:** click **Open** on a part.
 
@@ -212,9 +211,8 @@ it shows, and then undo the change.
 - [ ] After step 3, the assembly and every part it uses (including sub-assemblies' parts and the
   one in the other folder) are checked out by Alex. The toast names the part Blair holds and says
   it was skipped.
-- [ ] The part from the unticked folder is on disk and stays there while it's checked out.
 - [ ] After step 4, every file in the folder and its subfolders that nobody else holds is checked
-  out, plus parts its assemblies use from other folders. The folder is ticked for **Get**.
+  out, plus parts its assemblies use from other folders.
 - [ ] After step 5, the part opens in SolidWorks.
 - [ ] Undo every check-out on both PCs afterwards.
 

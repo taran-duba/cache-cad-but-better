@@ -21,13 +21,12 @@ pub(crate) async fn sidecar(state: &AppState) -> Option<SidecarRefs> {
     sidecar_path(&cfg).filter(|p| p.exists()).filter(|_| !cfg.refs_disabled).map(SidecarRefs::new)
 }
 
-/// "Check out all": select everything under a folder, then check out every file in it that
-/// nobody holds, plus anything its assemblies use from other folders.
+/// "Check out all": check out every file under a folder that nobody holds and you may edit,
+/// plus anything its assemblies use from other folders.
 #[tauri::command]
 pub async fn check_out_all(app: AppHandle, state: State<'_, AppState>, folder_id: Option<String>) -> Result<CheckOutReport> {
     let v = state.vault().await?;
     let id = folder_id.unwrap_or_else(|| v.root_id.clone());
-    v.index.select_subtree(&id)?;
     let map = v.paths()?;
     let ids: Vec<String> = v
         .index

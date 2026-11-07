@@ -995,3 +995,121 @@ legend {
 .history-files li {
   padding: 2px 0;
 }
+
+.project-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px 3px 10px;
+  max-width: 260px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.project-trigger:hover,
+.project-trigger[data-state="open"] {
+  background: var(--hover);
+  border-color: var(--line-strong);
+}
+.project-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.project-trigger-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-chevron {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.15s var(--ease);
+}
+.project-trigger[data-state="open"] .project-chevron {
+  transform: rotate(180deg);
+}
+.menu {
+  z-index: 50;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 4px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+  animation: menu-in 0.14s var(--ease);
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation: none;
+  }
+}
+.menu-search {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  outline: none;
+}
+.menu-search::placeholder {
+  color: var(--muted);
+}
+.menu-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.menu-empty {
+  padding: 10px 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+}
+.menu-label {
+  padding: 6px 8px 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+.menu-item[data-selected="true"] {
+  background: var(--hover);
+}
+.menu-item[data-checked="true"] {
+  font-weight: 600;
+}
+.menu-check {
+  display: inline-flex;
+  width: 14px;
+  flex: none;
+  color: var(--accent);
+}

@@ -89,6 +89,9 @@ jobs:
           test -f "$result" || { echo "no smoke result written (did another permafrost instance swallow the launch?)"; exit 1; }
           cat "$result"
           [ "$code" = "0" ] || { echo "smoke test failed (exit code $code)"; exit 1; }
+          n=$(grep -c "mirrored on this PC\|CADmin/areas\|projects:" "$result" || true)
+          [ "$n" -ge 3 ] || { echo "expected 3 feature checks (mirror, roles/areas, projects), found $n"; exit 1; }
+          grep -Eq '"uiStepsPassed": ([89]|[1-9][0-9])' "$result" || { echo "the UI driver clicked through fewer than 8 steps"; exit 1; }
           echo "permafrost started and passed the smoke test on macOS."
 
       - name: Upload smoke test result and screenshot

@@ -136,6 +136,7 @@ impl<D: DriveApi> Vault<D> {
             if map.id_for(rel).is_some() {
                 return Err(Error::Conflict(format!("{} is already on Drive", rel.display())));
             }
+            self.ensure_can_add(rel)?;
             if !self.abs(rel).is_file() {
                 return Err(Error::NotFound(rel.display().to_string()));
             }
@@ -153,6 +154,10 @@ impl<D: DriveApi> Vault<D> {
                     None => Error::NotCheckedOut(f.name),
                 });
             }
+            if f.is_folder() {
+                self.ensure_can_edit(&f)?;
+            }
+            self.ensure_can_add(new_rel)?;
             if map.id_for(new_rel).is_some_and(|other| other != id) {
                 return Err(Error::Conflict(format!("{} already exists", new_rel.display())));
             }
@@ -390,7 +395,6 @@ mod tests {
         let a = vault(&drive, "alex@team.org", "pc-a");
         let b = vault(&drive, "blair@team.org", "pc-b");
         for v in [&a.vault, &b.vault] {
-            v.index.set_selection(&v.root_id, Some(true)).unwrap();
             v.sync_down().await.unwrap();
         }
         (drive, gear, robot, a, b)
@@ -507,7 +511,6 @@ mod tests {
         let mut b = vault(&drive, "blair@team.org", "pc-b");
         for v in [&mut a.vault, &mut b.vault] {
             v.root_id = cache.clone();
-            v.index.set_selection(&cache, Some(true)).unwrap();
             v.sync_down().await.unwrap();
         }
         let (av, bv) = (&a.vault, &b.vault);

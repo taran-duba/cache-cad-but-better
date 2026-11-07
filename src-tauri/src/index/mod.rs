@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS local (
 );
 
 -- Selective sync. mode 1 = get, 0 = don't get; inherited from the nearest ancestor.
-CREATE TABLE IF NOT EXISTS selection (file_id TEXT PRIMARY KEY, mode INTEGER NOT NULL);
 
 CREATE TABLE IF NOT EXISTS changesets (
     id TEXT PRIMARY KEY,
@@ -288,21 +287,6 @@ impl Index {
         Ok(())
     }
 
-    // ---- selective sync ----
-
-    pub fn set_selection(&self, file_id: &str, get: Option<bool>) -> Result<()> {
-        let conn = self.conn();
-        match get {
-            Some(g) => conn.execute(
-                "INSERT INTO selection(file_id, mode) VALUES (?1, ?2)
-                 ON CONFLICT(file_id) DO UPDATE SET mode = ?2",
-                params![file_id, g as i64],
-            )?,
-            None => conn.execute("DELETE FROM selection WHERE file_id = ?1", [file_id])?,
-        };
-        Ok(())
-    }
-
     /// Every file and folder beneath `folder_id` (not including it).
     pub fn descendants(&self, folder_id: &str) -> Result<Vec<RemoteFile>> {
         let mut children: BTreeMap<String, Vec<RemoteFile>> = BTreeMap::new();
@@ -320,30 +304,6 @@ impl Index {
             }
         }
         Ok(out)
-    }
-
-    /// Mark `folder_id` as "get" and drop every explicit choice beneath it, so the whole subtree is pulled.
-    pub fn select_subtree(&self, folder_id: &str) -> Result<()> {
-        let below = self.descendants(folder_id)?;
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        for f in &below {
-            tx.execute("DELETE FROM selection WHERE file_id = ?1", [&f.id])?;
-        }
-        tx.execute(
-            "INSERT INTO selection(file_id, mode) VALUES (?1, 1)
-             ON CONFLICT(file_id) DO UPDATE SET mode = 1",
-            [folder_id],
-        )?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    pub fn selections(&self) -> Result<BTreeMap<String, bool>> {
-        let conn = self.conn();
-        let mut st = conn.prepare_cached("SELECT file_id, mode FROM selection")?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0)))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     // ---- changesets ----

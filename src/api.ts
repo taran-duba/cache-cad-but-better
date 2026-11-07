@@ -12,6 +12,19 @@ export interface LockInfo {
   machine: string;
 }
 
+export interface AreaInfo {
+  id: string;
+  /** Path of the area's folder or file in the CAD folder ("" = the whole CAD folder). */
+  path: string;
+  /** Who may edit it besides CADmins. Empty = CADmins only. */
+  editors: string[];
+}
+
+export interface Team {
+  admins: string[];
+  areas: AreaInfo[];
+}
+
 export interface Entry {
   id: string;
   name: string;
@@ -23,9 +36,19 @@ export interface Entry {
   lastModifier: string | null;
   lock: LockInfo | null;
   mine: boolean;
-  selection: boolean | null;
-  selected: boolean;
+  /** You may check it out: its area lets you, or you're a CADmin. */
+  canEdit: boolean;
+  /** The area that decides who edits it (only while roles are on). */
+  area: AreaInfo | null;
   status: FileStatus;
+}
+
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  /** Where it lives on this PC. */
+  root: string;
+  active: boolean;
 }
 
 export interface Status {
@@ -45,6 +68,12 @@ export interface Status {
   pendingCheckIns: number;
   refsAvailable: boolean;
   refsEnabled: boolean;
+  /** The team has CADmins, so areas limit who edits what. */
+  rolesOn: boolean;
+  /** You're a CADmin (always true while roles are off). */
+  isAdmin: boolean;
+  /** Every project this PC has opened; the open one has `active` set. */
+  projects: ProjectInfo[];
 }
 
 export interface OAuthClient {
@@ -81,6 +110,8 @@ export interface CheckOutReport {
   /** How many of those were added because an assembly uses them. */
   depsCheckedOut: number;
   lockedByOthers: string[];
+  /** In areas you can't edit, so left read-only. */
+  notYours: string[];
   missing: number;
   failed: number;
   firstError: string | null;
@@ -155,13 +186,13 @@ export const api = {
   browseLocations: () => invoke<Location[]>("browse_locations"),
   browseFolders: (parentId: string) => invoke<BrowseFolder[]>("browse_folders", { parentId }),
   chooseFolder: (input: string) => invoke<void>("choose_folder", { input }),
+  openProject: (folderId: string) => invoke<void>("open_project", { folderId }),
+  removeProject: (folderId: string) => invoke<void>("remove_project", { folderId }),
   switchDrive: () => invoke<void>("switch_drive"),
   setVaultFolder: (root: string) => invoke<void>("set_vault_folder", { root }),
   signOut: () => invoke<void>("sign_out"),
   startDemo: () => invoke<void>("start_demo"),
   listChildren: (parentId: string | null) => invoke<Entry[]>("list_children", { parentId }),
-  setSelection: (fileId: string, get: boolean | null) => invoke<void>("set_selection", { fileId, get }),
-  selectAll: (folderId: string | null) => invoke<void>("select_all", { folderId }),
   checkOutWithRefs: (fileId: string) => invoke<CheckOutReport>("check_out_with_refs", { fileId }),
   checkOutAll: (folderId: string | null) => invoke<CheckOutReport>("check_out_all", { folderId }),
   renameItem: (fileId: string, newPath: string) => invoke<RenameReport>("rename_item", { fileId, newPath }),
@@ -185,10 +216,18 @@ export const api = {
   history: (limit?: number) => invoke<HistoryEntry[]>("history", { limit }),
   openFile: (fileId: string) => invoke<void>("open_file", { fileId }),
   revealRoot: () => invoke<void>("reveal_root"),
-  frontendReady: () => invoke<void>("frontend_ready"),
+  frontendReady: () => invoke<boolean>("frontend_ready"),
+  smokeReport: (steps: { name: string; ok: boolean; detail?: string }[]) => invoke<void>("smoke_report", { steps }),
   deleteFromDrive: (fileId: string, force: boolean) =>
     invoke<{ name: string; local_copy: string | null }>("delete_from_drive", { fileId, force }),
   openLogs: () => invoke<void>("open_logs"),
+  getTeam: () => invoke<Team>("get_team"),
+  setAdmins: (admins: string[]) => invoke<Team>("set_admins", { admins }),
+  /** Give a folder or file its own editors; null removes the area. */
+  setArea: (fileId: string, editors: string[] | null) => invoke<Team>("set_area", { fileId, editors }),
+  openInDrive: (fileId: string | null) => invoke<void>("open_in_drive", { fileId }),
+  createDriveFolder: (parentId: string, name: string) =>
+    invoke<BrowseFolder>("create_drive_folder", { parentId, name }),
   takeNewCrashReport: () => invoke<string | null>("take_new_crash_report"),
 };
 
@@ -199,6 +238,19 @@ export function errorText(e: unknown): string {
 /** How to name a teammate: their Google name, else (older data) the part of their email before the @. */
 export function who(email: string | null | undefined, name?: string | null): string {
   return name || (email ? email.split("@")[0] : "someone");
+}
+
+/** "alex, blair" from emails; "CADmins only" for nobody. */
+export function editorsText(editors: string[]): string {
+  return editors.length ? editors.map((e) => who(e)).join(", ") : "CADmins only";
+}
+
+/** Split typed emails on commas, semicolons, spaces or new lines. */
+export function parseEmails(text: string): string[] {
+  return text
+    .split(/[\s,;]+/)
+    .map((e) => e.trim())
+    .filter(Boolean);
 }
 
 export function ago(iso: string): string {

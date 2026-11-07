@@ -3,7 +3,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use super::config::AppConfig;
@@ -16,9 +16,10 @@ use crate::index::PathMap;
 use crate::names::{cad_kind, is_temp_file, CadKind};
 use crate::refs::{CheckInPlan, Problem, SidecarRefs, StaticRefs};
 use crate::sync::localfs;
-use crate::sync::pull::{is_selected, PullReport};
+use crate::sync::pull::PullReport;
 use crate::sync::push::{PushOutcome, PushRequest};
 use crate::sync::remove::DeleteOutcome;
+use crate::team::{AreaInfo, Team};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +48,21 @@ pub struct Status {
     refs_available: bool,
     /// Reference checking is switched on in Settings (it may still be unavailable).
     refs_enabled: bool,
+    /// The team has CADmins, so areas restrict who edits what.
+    roles_on: bool,
+    /// I'm a CADmin (always true while roles are off).
+    is_admin: bool,
+    /// Every project this PC has opened; the open one is marked `active`.
+    projects: Vec<ProjectInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInfo {
+    id: String,
+    name: String,
+    root: PathBuf,
+    active: bool,
 }
 
 #[derive(Serialize)]
@@ -62,17 +78,17 @@ pub struct Entry {
     last_modifier: Option<String>,
     lock: Option<LockInfo>,
     mine: bool,
-    /// Explicit selective-sync choice on this item (None = inherited).
-    selection: Option<bool>,
-    selected: bool,
+    /// I may check it out (its area allows me, or I'm a CADmin).
+    can_edit: bool,
+    /// The area that decides who edits it, if any.
+    area: Option<AreaInfo>,
     /// synced | outdated | not_synced | modified | pending
     status: &'static str,
 }
 
 type ById<'a> = std::collections::HashMap<&'a str, &'a RemoteFile>;
 
-fn entry(v: &AppVault, f: &RemoteFile, map: &PathMap, by_id: &ById, sel: &std::collections::BTreeMap<String, bool>) -> Result<Entry> {
-    let selected = is_selected(&f.id, by_id, sel);
+fn entry(v: &AppVault, f: &RemoteFile, map: &PathMap, by_id: &ById, team: &Team) -> Result<Entry> {
     let status = if f.is_folder() {
         "synced"
     } else if f.prop(props::PENDING_CHANGESET).is_some_and(|c| !v.index.has_changeset(c).unwrap_or(false)) {
@@ -103,8 +119,8 @@ fn entry(v: &AppVault, f: &RemoteFile, map: &PathMap, by_id: &ById, sel: &std::c
         last_modifier: f.last_modifier.clone(),
         lock: f.lock(),
         mine: v.i_hold_lock(f),
-        selection: sel.get(&f.id).copied(),
-        selected,
+        can_edit: team.can_edit(&v.me, &f.id, by_id),
+        area: team.roles_on().then(|| team.area_for(&f.id, by_id)).flatten().map(|a| v.area_info(a, map)),
         status,
     })
 }
@@ -123,6 +139,12 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
     let cfg = state.config.read().await.clone();
     let vault = state.vault.read().await.clone();
     let refs_enabled = !cfg.refs_disabled;
+    let demo = state.demo.load(std::sync::atomic::Ordering::Relaxed);
+    let team = match &vault {
+        Some(v) => v.team()?,
+        None => Team::default(),
+    };
+    let me = vault.as_ref().map(|v| v.me.clone()).unwrap_or_default();
     let refs_available = refs_enabled && sidecar_path(&cfg).is_some_and(|p| p.exists());
     Ok(Status {
         sign_in_available: state.oauth_client().await.is_some(),
@@ -132,10 +154,10 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         sign_in_expired: state.sign_in_expired.load(std::sync::atomic::Ordering::Relaxed),
         restoring: state.restoring.load(std::sync::atomic::Ordering::Relaxed),
         syncing: state.syncing.load(std::sync::atomic::Ordering::Relaxed) > 0,
-        demo: state.demo.load(std::sync::atomic::Ordering::Relaxed),
+        demo,
         me: vault.as_ref().map(|v| v.me.clone()),
         root: vault.as_ref().map(|v| v.root.clone()),
-        folder_id: vault.as_ref().map(|v| v.root_id.clone()),
+        folder_id: if demo { Some(state.demo_project.lock().unwrap().clone()) } else { vault.as_ref().map(|v| v.root_id.clone()) },
         folder_name: state.folder_name.read().await.clone(),
         file_count: match &vault {
             Some(v) => v.index.file_count()?,
@@ -147,13 +169,38 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status> {
         },
         refs_available,
         refs_enabled,
+        roles_on: team.roles_on(),
+        is_admin: team.is_admin(&me),
+        projects: if demo {
+            let open = state.demo_project.lock().unwrap().clone();
+            super::demo::PROJECTS
+                .iter()
+                .map(|&(id, name)| ProjectInfo { id: id.into(), name: name.into(), root: PathBuf::new(), active: id == open })
+                .collect()
+        } else {
+            cfg.projects
+                .iter()
+                .map(|p| ProjectInfo {
+                    id: p.folder_id.clone(),
+                    name: p.name.clone(),
+                    root: p.root.clone(),
+                    active: vault.as_ref().is_some_and(|v| v.root_id == p.folder_id),
+                })
+                .collect()
+        },
     })
 }
 
 /// The UI calls this once it has rendered; the start-up smoke test waits for it.
 #[tauri::command]
-pub fn frontend_ready(app: AppHandle) {
-    super::smoke::mark_ui_ready(&app);
+pub fn frontend_ready(app: AppHandle) -> bool {
+    super::smoke::mark_ui_ready(&app)
+}
+
+/// The UI's smoke-test driver reports what it clicked through (smoke mode only).
+#[tauri::command]
+pub fn smoke_report(app: AppHandle, steps: Vec<super::smoke::UiStep>) {
+    super::smoke::set_ui_steps(&app, steps);
 }
 
 #[tauri::command]
@@ -207,7 +254,7 @@ pub struct Location {
     kind: &'static str,
 }
 
-const SHARED_WITH_ME: &str = "__shared_with_me";
+pub(crate) const SHARED_WITH_ME: &str = "__shared_with_me";
 
 #[tauri::command]
 pub async fn browse_locations(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Location>> {
@@ -247,7 +294,63 @@ pub async fn choose_folder(app: AppHandle, state: State<'_, AppState>, input: St
     Ok(())
 }
 
-/// Go back to the drive list (e.g. the team made a new drive for a new season).
+/// Switch to another project this PC has opened before (in-season, off-season, ...).
+#[tauri::command]
+pub async fn open_project(app: AppHandle, state: State<'_, AppState>, folder_id: String) -> Result<()> {
+    if state.demo.load(std::sync::atomic::Ordering::Relaxed) {
+        state.open_demo_project(&folder_id).await?;
+        let _ = app.emit("vault-changed", ());
+        sync_soon(&app);
+        return Ok(());
+    }
+    if !state.config.read().await.projects.iter().any(|p| p.folder_id == folder_id) {
+        return Err(Error::NotFound("that project".into()));
+    }
+    let r = state.open_folder(&folder_id).await;
+    state.check_expired(&app, r).await?;
+    let _ = app.emit("vault-changed", ());
+    sync_soon(&app);
+    Ok(())
+}
+
+/// Catch the newly opened project up now instead of waiting for the next background sync.
+fn sync_soon(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if let Err(e) = state.sync_tracked(&app).await {
+            tracing::warn!(%e, "sync after switching project failed");
+        }
+    });
+}
+
+/// Forget a project on this PC. Its local files and the Drive folder are left alone.
+#[tauri::command]
+pub async fn remove_project(app: AppHandle, state: State<'_, AppState>, folder_id: String) -> Result<()> {
+    let was_open = state.vault.read().await.as_ref().is_some_and(|v| v.root_id == folder_id);
+    let next = {
+        let mut cfg = state.config.write().await;
+        cfg.projects.retain(|p| p.folder_id != folder_id);
+        if cfg.folder_id.as_deref() == Some(folder_id.as_str()) {
+            cfg.folder_id = None;
+            cfg.root = None;
+        }
+        cfg.save(&state.config_path)?;
+        cfg.projects.first().map(|p| p.folder_id.clone())
+    };
+    if was_open {
+        *state.vault.write().await = None;
+        *state.folder_name.write().await = None;
+        if let Some(next) = next {
+            let r = state.open_folder(&next).await;
+            state.check_expired(&app, r).await?;
+        }
+    }
+    let _ = app.emit("vault-changed", ());
+    Ok(())
+}
+
+/// Go to the folder picker to add another project (e.g. a new season's drive).
 #[tauri::command]
 pub async fn switch_drive(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     *state.vault.write().await = None;
@@ -292,28 +395,15 @@ pub async fn list_children(state: State<'_, AppState>, parent_id: Option<String>
     let v = state.vault().await?;
     let all = v.index.all_files()?;
     let map = PathMap::build(&v.root_id, &all);
-    let sel = v.index.selections()?;
+    let team = v.team()?;
     let by_id: ById = all.iter().map(|f| (f.id.as_str(), f)).collect();
     let parent = parent_id.unwrap_or_else(|| v.root_id.clone());
     v.index
         .children(&parent)?
         .iter()
         .filter(|f| map.contains(&f.id))
-        .map(|f| entry(&v, f, &map, &by_id, &sel))
+        .map(|f| entry(&v, f, &map, &by_id, &team))
         .collect()
-}
-
-#[tauri::command]
-pub async fn set_selection(state: State<'_, AppState>, file_id: String, get: Option<bool>) -> Result<()> {
-    state.vault().await?.index.set_selection(&file_id, get)
-}
-
-/// "Select all": pull everything under a folder (`None` = the whole CAD folder).
-#[tauri::command]
-pub async fn select_all(state: State<'_, AppState>, folder_id: Option<String>) -> Result<()> {
-    let v = state.vault().await?;
-    let id = folder_id.unwrap_or_else(|| v.root_id.clone());
-    v.index.select_subtree(&id)
 }
 
 #[tauri::command]
@@ -389,12 +479,12 @@ pub async fn my_changes(state: State<'_, AppState>) -> Result<MyChanges> {
     let v = state.vault().await?;
     let all = v.index.all_files()?;
     let map = PathMap::build(&v.root_id, &all);
-    let sel = v.index.selections()?;
+    let team = v.team()?;
     let by_id: ById = all.iter().map(|f| (f.id.as_str(), f)).collect();
     let checked_out = all
         .iter()
         .filter(|f| v.i_hold_lock(f) && map.contains(&f.id))
-        .map(|f| entry(&v, f, &map, &by_id, &sel))
+        .map(|f| entry(&v, f, &map, &by_id, &team))
         .collect::<Result<_>>()?;
     let mut new_files = Vec::new();
     collect_untracked(&v.root, Path::new(""), &map, &mut new_files)?;

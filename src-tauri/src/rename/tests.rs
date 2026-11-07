@@ -59,7 +59,6 @@ async fn team() -> Team {
     let a = vault(&drive, "alex@team.org", "pc-a");
     let b = vault(&drive, "blair@team.org", "pc-b");
     for v in [&a.vault, &b.vault] {
-        v.index.set_selection(&v.root_id, Some(true)).unwrap();
         v.sync_down().await.unwrap();
     }
     Team { drive, arm, asm, gear, bot, a, b }
