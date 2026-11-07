@@ -165,8 +165,9 @@ export default function App() {
             ) : (
               <span title={status.root ?? ""}>{status.folderName}</span>
             )}
+            <span className="muted" aria-hidden="true">·</span>
             <span className="muted" title={status.me ?? ""}>
-              · {status.accountName || status.me}
+              {status.accountName || status.me}
             </span>
             {status.rolesOn && status.isAdmin && (
               <span className="pill pill-info" title="You can edit everything and choose who edits what">
