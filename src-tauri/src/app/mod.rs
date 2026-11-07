@@ -226,13 +226,24 @@ impl AppState {
     /// Open one of the demo's projects (see `demo::PROJECTS`).
     pub async fn open_demo_project(&self, id: &str) -> Result<()> {
         let &(id, name) = demo::PROJECTS.iter().find(|p| p.0 == id).ok_or_else(|| Error::NotFound("that demo project".into()))?;
-        let dir = self.data_dir.join(id);
+        // A fresh folder every time: a sync still running for the previous demo vault must not
+        // write into (or wipe) this one's index.
+        static OPENS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let demo_root = self.data_dir.join("demo");
+        let dir = demo_root.join(format!("{id}-{n}"));
         let vault = demo::build(&dir, id).await?;
         *self.demo_project.lock().unwrap() = id.to_string();
         *self.account.write().await = Some(Account { email: vault.me.clone(), name: vault.my_name.clone() });
         *self.vault.write().await = Some(Arc::new(vault));
         *self.folder_name.write().await = Some(name.into());
         self.demo.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Tidy up earlier demo folders (best effort: one may still be in use for a moment).
+        if let Ok(rd) = std::fs::read_dir(&demo_root) {
+            for e in rd.flatten().filter(|e| e.path() != dir) {
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
         Ok(())
     }
 
