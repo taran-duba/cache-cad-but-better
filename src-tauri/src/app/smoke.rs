@@ -167,6 +167,13 @@ async fn run(app: &AppHandle, r: &mut SmokeResult) -> Result<(), String> {
         return Err(format!("UI step \"{}\" failed: {}", bad.name, bad.detail.clone().unwrap_or_default()));
     }
 
+    // The UI driver's project switch starts a background sync of the reopened demo vault. Wait
+    // for it (the sync lock) and finish the mirror, so the feature checks don't race it.
+    let report = state.sync_once().await.map_err(|e| format!("sync after the UI steps: {e}"))?;
+    if !report.errors.is_empty() {
+        return Err(format!("sync errors after the UI steps: {:?}", report.errors));
+    }
+
     r.features = super::smoke_features::run(&state).await?;
 
     r.sign_in_built_in = crate::drive::auth::OAuthClient::built_in()
